@@ -105,12 +105,17 @@ const saveHistory = (items: HistoryEntry[]) => {
 // Helpers
 // ───────────────────────────────────────────────────────────────────
 
-const buildCopyAll = (drafts: GroupDraft[]): string =>
+const withUrl = (content: string, url: string): string => {
+	if (!url || content.includes(url)) return content;
+	return `${content}\n\n${url}`;
+};
+
+const buildCopyAll = (drafts: GroupDraft[], url: string): string =>
 	drafts
 		.map((d) => {
 			const label = PLATFORM_GROUPS[d.group].label;
 			const platforms = d.platforms.map((p) => PLATFORM_LABELS[p]).join(", ");
-			return `### ${label} — for ${platforms}\n\n${d.content}\n`;
+			return `### ${label} — for ${platforms}\n\n${withUrl(d.content, url)}\n`;
 		})
 		.join("\n---\n\n");
 
@@ -409,7 +414,10 @@ export const Drafter = () => {
 								variant="ghost"
 								size="sm"
 								onClick={() =>
-									handleCopy("all", buildCopyAll(editableDrafts))
+									handleCopy(
+										"all",
+										buildCopyAll(editableDrafts, preview.article.url),
+									)
 								}
 							>
 								{copiedKey === "all" ? (
@@ -491,7 +499,12 @@ export const Drafter = () => {
 
 											<div className="flex gap-2">
 												<Button
-													onClick={() => handleCopy(copyKey, draft.content)}
+													onClick={() =>
+														handleCopy(
+															copyKey,
+															withUrl(draft.content, preview.article.url),
+														)
+													}
 													variant="outline"
 													size="sm"
 													className="flex-1"
