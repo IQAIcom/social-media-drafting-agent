@@ -18,12 +18,12 @@ export default function Home() {
 						<h1 className="text-4xl sm:text-5xl font-bold mb-4 tracking-tight leading-tight">
 							Turn blog posts into{" "}
 							<span className="bg-linear-to-r from-primary to-pink-400 bg-clip-text text-transparent">
-								social posts
+								social drafts
 							</span>
 						</h1>
 
 						<p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto">
-							Paste a blog URL. The agent reads the article, drafts posts for LinkedIn, X, Bluesky, Threads, WhatsApp, and Mastodon — publish where you have credentials, copy the rest.
+							Paste a blog URL. The agent reads the article and drafts three posts for LinkedIn, X, Bluesky, Threads, and Mastodon — copy and post manually.
 						</p>
 					</div>
 

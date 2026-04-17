@@ -1,32 +1,25 @@
 "use server";
 
-import { getDraftRunner, getPublishRunner } from "@/agents/coordinator/agent";
+import { getDraftRunner } from "@/agents/coordinator/agent";
 import {
-	CHAR_LIMITS,
 	type ArticlePreview,
+	type GroupDraft,
+	groupsForPlatforms,
+	PLATFORM_GROUPS,
 	type Platform,
-	type PlatformAvailability,
-	type PostDraft,
+	type PlatformGroup,
 	type PreviewResult,
-	type PublishResult,
 	type Tone,
 } from "@/types";
-import { env, getPlatformAvailability } from "../../../env";
 
 // ───────────────────────────────────────────────────────────────────
-// Singleton runners — avoid re-initializing MCP toolsets on every call.
+// Singleton runner — avoid re-initializing on every call.
 // ───────────────────────────────────────────────────────────────────
 let draftRunner: Awaited<ReturnType<typeof getDraftRunner>> | null = null;
-let publishRunner: Awaited<ReturnType<typeof getPublishRunner>> | null = null;
 
 async function ensureDraftRunner() {
 	if (!draftRunner) draftRunner = await getDraftRunner();
 	return draftRunner;
-}
-
-async function ensurePublishRunner() {
-	if (!publishRunner) publishRunner = await getPublishRunner();
-	return publishRunner;
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -63,42 +56,40 @@ function setCachedArticle(
 }
 
 // ───────────────────────────────────────────────────────────────────
-// Availability (read-only — read during SSR to decide which buttons
-// to render).
-// ───────────────────────────────────────────────────────────────────
-
-export async function getAvailability(): Promise<{
-	platforms: PlatformAvailability;
-}> {
-	return {
-		platforms: getPlatformAvailability(),
-	};
-}
-
-// ───────────────────────────────────────────────────────────────────
 // Helpers
 // ───────────────────────────────────────────────────────────────────
 
 function buildDraft(
-	platform: Platform,
+	group: PlatformGroup,
+	selectedPlatforms: Platform[],
 	content: string,
 	hashtags: string[],
-	thread?: string[],
-): PostDraft {
-	const charLimit = CHAR_LIMITS[platform];
-	const charCount = thread
-		? Math.max(...thread.map((p) => p.length))
-		: content.length;
-	return { platform, content, hashtags, thread, charCount, charLimit };
+): GroupDraft {
+	const spec = PLATFORM_GROUPS[group];
+	const selectedSet = new Set(selectedPlatforms);
+	return {
+		group,
+		platforms: spec.platforms.filter((p) => selectedSet.has(p)),
+		content,
+		hashtags,
+		charLimit: spec.charLimit,
+		charCount: content.length,
+	};
+}
+
+function buildGroupBrief(groups: PlatformGroup[]): string {
+	return groups
+		.map((g) => {
+			const spec = PLATFORM_GROUPS[g];
+			return `- ${g} (char limit ${spec.charLimit}) — shared by: ${spec.platforms.join(", ")}`;
+		})
+		.join("\n");
 }
 
 async function fetchArticleDirectly(url: string): Promise<{
 	article: ArticlePreview;
 	content: string;
 } | null> {
-	// Use the agent's fetch tool indirectly via a micro-prompt that asks for
-	// only the article fetch, no draft generation. Easier: replicate the
-	// fetch in-place to avoid a wasted LLM roundtrip.
 	try {
 		const response = await fetch(url, {
 			headers: {
@@ -205,20 +196,22 @@ async function ensureArticle(url: string) {
 // ───────────────────────────────────────────────────────────────────
 
 /**
- * Generate drafts for all requested platforms.
- * Uses the server-side article cache so the second run with the same URL
- * (e.g., different tone or platform mix) is ~free.
+ * Generate drafts for every group that contains at least one of the
+ * user's selected platforms. Uses the server-side article cache so
+ * repeat calls (regenerate, different tone) are ~free.
  */
 export async function previewPosts(params: {
 	url: string;
 	tone: Tone;
 	platforms: Platform[];
-	xThreadLength: number;
 }): Promise<PreviewResult> {
-	const { url, tone, platforms, xThreadLength } = params;
-	const runner = await ensureDraftRunner();
+	const { url, tone, platforms } = params;
+	const groups = groupsForPlatforms(platforms);
+	if (groups.length === 0) {
+		throw new Error("Select at least one platform.");
+	}
 
-	// Warm the cache so `regenerateDraft` and repeat calls are fast.
+	const runner = await ensureDraftRunner();
 	const cached = await ensureArticle(url);
 
 	const articleContext = cached
@@ -237,47 +230,48 @@ ${cached.content}
 `
 		: `URL to fetch: ${url}`;
 
-	const prompt = `Generate social media post drafts for this article:
+	const prompt = `Generate one social media draft per requested group for this article.
 
 ${articleContext}
 
 Tone: ${tone}
-Platforms: ${platforms.join(", ")}
-${platforms.includes("x") && xThreadLength > 1 ? `X mode: THREAD of ${xThreadLength} posts (populate \`thread\` array for x draft)` : "X mode: single post"}`;
+
+Requested groups and their HARD character limits:
+${buildGroupBrief(groups)}
+
+Return exactly ${groups.length} draft${groups.length === 1 ? "" : "s"} — one per group listed above. Do NOT exceed any group's char limit.`;
 
 	const result = (await runner.ask(prompt)) as {
 		article: ArticlePreview;
 		drafts: Array<{
-			platform: Platform;
+			group: PlatformGroup;
 			content: string;
-			thread?: string[];
 			hashtags: string[];
 		}>;
 	};
 
-	// If the agent fetched the article itself, cache that result too.
 	if (!cached && result.article?.url) {
 		setCachedArticle(result.article.url, result.article, "");
 	}
 
-	const drafts: PostDraft[] = result.drafts.map((d) =>
-		buildDraft(d.platform, d.content, d.hashtags, d.thread),
-	);
+	const drafts: GroupDraft[] = result.drafts
+		.filter((d) => groups.includes(d.group))
+		.map((d) => buildDraft(d.group, platforms, d.content, d.hashtags));
 
 	return { article: cached?.article ?? result.article, drafts };
 }
 
 /**
- * Regenerate a single platform's draft using the cached article.
+ * Regenerate a single group's draft using the cached article.
  * Cheap because the article was already fetched.
  */
 export async function regenerateDraft(params: {
 	url: string;
-	platform: Platform;
+	group: PlatformGroup;
+	platforms: Platform[];
 	tone: Tone;
-	xThreadLength: number;
-}): Promise<PostDraft> {
-	const { url, platform, tone, xThreadLength } = params;
+}): Promise<GroupDraft> {
+	const { url, group, platforms, tone } = params;
 
 	const cached = await ensureArticle(url);
 	if (!cached) {
@@ -287,6 +281,7 @@ export async function regenerateDraft(params: {
 	}
 
 	const runner = await ensureDraftRunner();
+	const spec = PLATFORM_GROUPS[group];
 
 	const prompt = `Regenerate a single draft for this article. Use the provided content — do NOT call fetch_blog_post.
 
@@ -300,86 +295,25 @@ CONTENT:
 ${cached.content}
 
 Tone: ${tone}
-Platforms: ${platform}
-${platform === "x" && xThreadLength > 1 ? `X mode: THREAD of ${xThreadLength} posts` : ""}
 
-Return JSON with the article block AND exactly one draft for the requested platform. Make this draft noticeably different from a typical first attempt — try a fresh angle or hook.`;
+Requested group and HARD character limit:
+- ${group} (char limit ${spec.charLimit}) — shared by: ${spec.platforms.join(", ")}
+
+Return JSON with the article block AND exactly one draft for the "${group}" group. Make this draft noticeably different from a typical first attempt — try a fresh angle or hook. Do NOT exceed the char limit.`;
 
 	const result = (await runner.ask(prompt)) as {
 		article: ArticlePreview;
 		drafts: Array<{
-			platform: Platform;
+			group: PlatformGroup;
 			content: string;
-			thread?: string[];
 			hashtags: string[];
 		}>;
 	};
 
-	const match = result.drafts.find((d) => d.platform === platform);
+	const match = result.drafts.find((d) => d.group === group);
 	if (!match) {
-		throw new Error(`Agent did not return a draft for platform: ${platform}`);
+		throw new Error(`Agent did not return a draft for group: ${group}`);
 	}
 
-	return buildDraft(match.platform, match.content, match.hashtags, match.thread);
+	return buildDraft(match.group, platforms, match.content, match.hashtags);
 }
-
-/**
- * Publish a single post or thread to a platform.
- * Only works when credentials for that platform are configured — the UI
- * should check availability and hide the publish button otherwise.
- */
-export async function publishPost(params: {
-	platform: Platform;
-	content: string;
-	thread?: string[];
-}): Promise<PublishResult> {
-	const availability = getPlatformAvailability();
-	if (!availability[params.platform]) {
-		return {
-			platform: params.platform,
-			success: false,
-			message: `No credentials configured for ${params.platform}. Use Copy to post manually.`,
-		};
-	}
-
-	try {
-		const runner = await ensurePublishRunner();
-
-		const telegramContext =
-			params.platform === "telegram" && env.TELEGRAM_CHAT_ID
-				? `\nchatId: ${env.TELEGRAM_CHAT_ID}\n`
-				: "";
-
-		const prompt = `Publish to ${params.platform}:
-${telegramContext}
-${params.thread && params.thread.length > 1 ? `THREAD (${params.thread.length} posts):\n${params.thread.map((p, i) => `[${i + 1}] ${p}`).join("\n\n")}` : params.content}`;
-
-		const response = await runner.ask(prompt);
-
-		try {
-			const parsed = JSON.parse(
-				typeof response === "string" ? response : JSON.stringify(response),
-			);
-			return {
-				platform: params.platform,
-				success: parsed.success ?? true,
-				message: parsed.message ?? "Published",
-				url: parsed.url,
-			};
-		} catch {
-			return {
-				platform: params.platform,
-				success: true,
-				message: typeof response === "string" ? response : "Published",
-			};
-		}
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		return {
-			platform: params.platform,
-			success: false,
-			message: `Failed to publish: ${message}`,
-		};
-	}
-}
-

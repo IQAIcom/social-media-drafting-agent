@@ -2,7 +2,6 @@
 
 import {
 	AlertCircle,
-	CheckCircle2,
 	ClipboardCheck,
 	ClipboardCopy,
 	Clock,
@@ -12,8 +11,6 @@ import {
 	Loader2,
 	MessageCircle,
 	RefreshCw,
-	Send,
-	Send as TelegramIcon,
 	Sparkles,
 	Trash2,
 	Twitter,
@@ -30,28 +27,24 @@ import {
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import {
-	CHAR_LIMITS,
+	ALL_PLATFORMS,
+	type GroupDraft,
+	groupsForPlatforms,
+	PLATFORM_GROUPS,
 	PLATFORM_LABELS,
 	type Platform,
-	type PlatformAvailability,
-	type PostDraft,
+	type PlatformGroup,
 	type PreviewResult,
-	type PublishResult,
 	type Tone,
 } from "@/types";
-import {
-	getAvailability,
-	previewPosts,
-	publishPost,
-	regenerateDraft,
-} from "./_actions";
+import { previewPosts, regenerateDraft } from "./_actions";
 
 // ───────────────────────────────────────────────────────────────────
 // Constants
 // ───────────────────────────────────────────────────────────────────
 
 const TONES: { value: Tone; label: string; description: string }[] = [
-	{ value: "auto", label: "Auto", description: "Platform-appropriate" },
+	{ value: "auto", label: "Auto", description: "Group-appropriate" },
 	{ value: "professional", label: "Professional", description: "Polished" },
 	{ value: "casual", label: "Casual", description: "Friendly" },
 	{ value: "educational", label: "Educational", description: "Explanatory" },
@@ -63,9 +56,7 @@ const PLATFORM_ICONS: Record<Platform, typeof Linkedin> = {
 	x: Twitter,
 	bluesky: Globe,
 	threads: MessageCircle,
-	whatsapp: MessageCircle,
 	mastodon: Globe,
-	telegram: TelegramIcon,
 };
 
 const PLATFORM_COLORS: Record<Platform, string> = {
@@ -73,20 +64,8 @@ const PLATFORM_COLORS: Record<Platform, string> = {
 	x: "text-foreground",
 	bluesky: "text-sky-500",
 	threads: "text-foreground",
-	whatsapp: "text-green-600 dark:text-green-500",
 	mastodon: "text-purple-500",
-	telegram: "text-blue-400 dark:text-blue-300",
 };
-
-const ALL_PLATFORMS: Platform[] = [
-	"linkedin",
-	"x",
-	"bluesky",
-	"threads",
-	"whatsapp",
-	"mastodon",
-	"telegram",
-];
 
 // ───────────────────────────────────────────────────────────────────
 // Local history (sectionmemory via localStorage)
@@ -100,9 +79,7 @@ type HistoryEntry = {
 	url: string;
 	tone: Tone;
 	platforms: Platform[];
-	xThreadLength: number;
 	preview: PreviewResult;
-	publishResults: PublishResult[];
 	timestamp: number;
 };
 
@@ -129,21 +106,13 @@ const saveHistory = (items: HistoryEntry[]) => {
 // Helpers
 // ───────────────────────────────────────────────────────────────────
 
-const buildCopyText = (draft: PostDraft): string => {
-	if (draft.thread && draft.thread.length > 1) {
-		return draft.thread
-			.map((p, i) => `${i + 1}/${draft.thread?.length}\n${p}`)
-			.join("\n\n");
-	}
-	return draft.content;
-};
-
-const buildCopyAll = (drafts: PostDraft[]): string =>
+const buildCopyAll = (drafts: GroupDraft[]): string =>
 	drafts
-		.map(
-			(d) =>
-				`### ${PLATFORM_LABELS[d.platform]}\n\n${buildCopyText(d)}\n`,
-		)
+		.map((d) => {
+			const label = PLATFORM_GROUPS[d.group].label;
+			const platforms = d.platforms.map((p) => PLATFORM_LABELS[p]).join(", ");
+			return `### ${label} — for ${platforms}\n\n${d.content}\n`;
+		})
 		.join("\n---\n\n");
 
 const timeAgo = (ts: number) => {
@@ -164,56 +133,41 @@ export const Demo = () => {
 	// Form state
 	const [url, setUrl] = useState("");
 	const [tone, setTone] = useState<Tone>("auto");
-	const [platforms, setPlatforms] = useState<Platform[]>(["linkedin", "x"]);
-	const [xThreadLength, setXThreadLength] = useState(1);
-
-	// Availability (from server)
-	const [availability, setAvailability] = useState<{
-		platforms: PlatformAvailability;
-	} | null>(null);
+	const [platforms, setPlatforms] = useState<Platform[]>([
+		"linkedin",
+		"x",
+		"bluesky",
+		"threads",
+		"mastodon",
+	]);
 
 	// Generation state
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [preview, setPreview] = useState<PreviewResult | null>(null);
-	const [editableDrafts, setEditableDrafts] = useState<PostDraft[]>([]);
+	const [editableDrafts, setEditableDrafts] = useState<GroupDraft[]>([]);
 	const [error, setError] = useState<string | null>(null);
 
 	// Per-draft UI state
-	const [regenerating, setRegenerating] = useState<Record<string, boolean>>(
-		{},
-	);
-	const [publishing, setPublishing] = useState<Record<string, boolean>>({});
-	const [publishResults, setPublishResults] = useState<PublishResult[]>([]);
+	const [regenerating, setRegenerating] = useState<
+		Record<PlatformGroup, boolean>
+	>({
+		"short-casual": false,
+		"medium-community": false,
+		"long-professional": false,
+	});
 	const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
 	// History
 	const [history, setHistory] = useState<HistoryEntry[]>([]);
 
-	// Load availability + history once
 	useEffect(() => {
-		getAvailability().then(setAvailability).catch(() => {
-			// best-effort — if it fails, assume no auto-publish
-			setAvailability({
-				platforms: {
-					linkedin: false,
-					x: false,
-					bluesky: false,
-					threads: false,
-					whatsapp: false,
-					mastodon: false,
-					telegram: false,
-				},
-			});
-		});
 		setHistory(loadHistory());
 	}, []);
 
-	// Persist history whenever it changes
 	useEffect(() => {
 		saveHistory(history);
 	}, [history]);
 
-	// Save current run into history when we have a preview + drafts
 	useEffect(() => {
 		if (!preview) return;
 		const existing = history.find((h) => h.url === preview.article.url);
@@ -222,17 +176,15 @@ export const Demo = () => {
 			url: preview.article.url,
 			tone,
 			platforms,
-			xThreadLength,
 			preview,
-			publishResults,
 			timestamp: Date.now(),
 		};
 		setHistory((current) => {
 			const without = current.filter((h) => h.url !== entry.url);
 			return [entry, ...without].slice(0, MAX_HISTORY);
 		});
-		// biome-ignore lint/correctness/useExhaustiveDependencies: persist on preview/results change
-	}, [preview, publishResults]);
+		// biome-ignore lint/correctness/useExhaustiveDependencies: persist on preview change
+	}, [preview]);
 
 	const togglePlatform = (p: Platform) => {
 		setPlatforms((cur) =>
@@ -243,7 +195,6 @@ export const Demo = () => {
 	const resetResults = () => {
 		setPreview(null);
 		setEditableDrafts([]);
-		setPublishResults([]);
 		setError(null);
 	};
 
@@ -255,12 +206,7 @@ export const Demo = () => {
 		setIsGenerating(true);
 
 		try {
-			const result = await previewPosts({
-				url,
-				tone,
-				platforms,
-				xThreadLength,
-			});
+			const result = await previewPosts({ url, tone, platforms });
 			setPreview(result);
 			setEditableDrafts(result.drafts);
 		} catch (err) {
@@ -271,67 +217,33 @@ export const Demo = () => {
 		}
 	};
 
-	const updateDraftContent = (platform: Platform, content: string) => {
+	const updateDraftContent = (group: PlatformGroup, content: string) => {
 		setEditableDrafts((cur) =>
 			cur.map((d) =>
-				d.platform === platform
-					? { ...d, content, charCount: content.length, thread: undefined }
-					: d,
+				d.group === group ? { ...d, content, charCount: content.length } : d,
 			),
 		);
 	};
 
-	const handleRegenerate = async (draft: PostDraft) => {
+	const handleRegenerate = async (draft: GroupDraft) => {
 		if (!preview) return;
-		setRegenerating((r) => ({ ...r, [draft.platform]: true }));
+		setRegenerating((r) => ({ ...r, [draft.group]: true }));
 		setError(null);
 		try {
 			const fresh = await regenerateDraft({
 				url: preview.article.url,
-				platform: draft.platform,
+				group: draft.group,
+				platforms,
 				tone,
-				xThreadLength,
 			});
 			setEditableDrafts((cur) =>
-				cur.map((d) => (d.platform === draft.platform ? fresh : d)),
-			);
-			// Clear publish result for this platform — it's a new draft now
-			setPublishResults((cur) =>
-				cur.filter((r) => r.platform !== draft.platform),
+				cur.map((d) => (d.group === draft.group ? fresh : d)),
 			);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			setError(`Regenerate failed: ${message}`);
 		} finally {
-			setRegenerating((r) => ({ ...r, [draft.platform]: false }));
-		}
-	};
-
-	const handlePublish = async (draft: PostDraft) => {
-		setPublishing((p) => ({ ...p, [draft.platform]: true }));
-		setError(null);
-		try {
-			const result = await publishPost({
-				platform: draft.platform,
-				content: draft.content,
-				thread: draft.thread,
-			});
-			setPublishResults((cur) => [
-				...cur.filter((r) => r.platform !== draft.platform),
-				result,
-			]);
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			setPublishResults((cur) => [
-				...cur.filter((r) => r.platform !== draft.platform),
-				{
-					platform: draft.platform,
-					success: false,
-					message: `Failed: ${message}`,
-				},
-			]);
-		} finally {
-			setPublishing((p) => ({ ...p, [draft.platform]: false }));
+			setRegenerating((r) => ({ ...r, [draft.group]: false }));
 		}
 	};
 
@@ -349,10 +261,8 @@ export const Demo = () => {
 		setUrl(entry.url);
 		setTone(entry.tone);
 		setPlatforms(entry.platforms);
-		setXThreadLength(entry.xThreadLength);
 		setPreview(entry.preview);
 		setEditableDrafts(entry.preview.drafts);
-		setPublishResults(entry.publishResults);
 		setError(null);
 	};
 
@@ -365,6 +275,8 @@ export const Demo = () => {
 		resetResults();
 	};
 
+	const activeGroups = groupsForPlatforms(platforms);
+
 	return (
 		<div className="grid gap-6 lg:grid-cols-[1fr_280px]">
 			<div className="space-y-6 min-w-0">
@@ -373,10 +285,11 @@ export const Demo = () => {
 					<CardHeader>
 						<CardTitle className="flex items-center gap-2 text-lg">
 							<Wand2 className="w-5 h-5 text-primary" />
-							Generate social media posts
+							Generate social media drafts
 						</CardTitle>
 						<CardDescription>
-							Paste a blog URL. Drafts are generated for every selected platform — copy-only where you haven't set up credentials.
+							Paste a blog URL. We produce up to three drafts — one per
+							platform group — that you can copy and post manually.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
@@ -425,14 +338,11 @@ export const Demo = () => {
 							</div>
 
 							<div>
-								<div className="text-sm font-medium mb-2">
-									Platforms
-								</div>
+								<div className="text-sm font-medium mb-2">Platforms</div>
 								<div className="flex gap-2 flex-wrap">
 									{ALL_PLATFORMS.map((p) => {
 										const Icon = PLATFORM_ICONS[p];
 										const active = platforms.includes(p);
-										const publishable = availability?.platforms[p];
 										return (
 											<button
 												key={p}
@@ -445,80 +355,22 @@ export const Demo = () => {
 														: "border-border bg-background hover:bg-accent"
 												}`}
 											>
-												<Icon className={`w-4 h-4 ${PLATFORM_COLORS[p]}`} />
+												<Icon
+													className={`w-4 h-4 ${PLATFORM_COLORS[p]}`}
+												/>
 												{PLATFORM_LABELS[p]}
-												{active && !publishable && (
-													<span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-														copy-only
-													</span>
-												)}
 											</button>
 										);
 									})}
 								</div>
+								{activeGroups.length > 0 && (
+									<p className="text-xs text-muted-foreground mt-2">
+										{activeGroups.length} draft
+										{activeGroups.length === 1 ? "" : "s"} will be
+										generated — one per group.
+									</p>
+								)}
 							</div>
-
-							{platforms.includes("x") && (
-								<div>
-									<div className="text-sm font-medium mb-2">
-										X format
-									</div>
-									<div className="flex items-center gap-3">
-										<div className="flex gap-2">
-											<button
-												type="button"
-												onClick={() => setXThreadLength(1)}
-												disabled={isGenerating}
-												className={`px-3 py-1.5 rounded-md border text-sm ${
-													xThreadLength === 1
-														? "border-primary bg-primary/10 ring-2 ring-primary"
-														: "border-border bg-background hover:bg-accent"
-												}`}
-											>
-												Single post
-											</button>
-											<button
-												type="button"
-												onClick={() =>
-													setXThreadLength(xThreadLength > 1 ? xThreadLength : 4)
-												}
-												disabled={isGenerating}
-												className={`px-3 py-1.5 rounded-md border text-sm ${
-													xThreadLength > 1
-														? "border-primary bg-primary/10 ring-2 ring-primary"
-														: "border-border bg-background hover:bg-accent"
-												}`}
-											>
-												Thread
-											</button>
-										</div>
-										{xThreadLength > 1 && (
-											<div className="flex items-center gap-2 text-sm">
-												<label htmlFor="thread-length" className="text-muted-foreground">
-													Posts:
-												</label>
-												<input
-													id="thread-length"
-													type="number"
-													min={2}
-													max={10}
-													value={xThreadLength}
-													onChange={(e) =>
-														setXThreadLength(
-															Math.min(
-																10,
-																Math.max(2, Number(e.target.value) || 4),
-															),
-														)
-													}
-													className="w-16 px-2 py-1 rounded-md border border-border bg-background text-sm"
-													disabled={isGenerating}
-												/>
-											</div>
-										)}
-									</div>
-								</div>
-							)}
 
 							<Button
 								type="submit"
@@ -551,7 +403,7 @@ export const Demo = () => {
 					</CardContent>
 				</Card>
 
-				{/* Step 2: Article preview */}
+				{/* Step 2: Article preview + drafts */}
 				{preview && (
 					<>
 						<Card>
@@ -610,78 +462,53 @@ export const Demo = () => {
 
 						<div className="grid gap-4 md:grid-cols-2">
 							{editableDrafts.map((draft) => {
-								const Icon = PLATFORM_ICONS[draft.platform];
-								const publishable =
-									availability?.platforms[draft.platform] ?? false;
-								const isThread =
-									draft.platform === "x" &&
-									draft.thread &&
-									draft.thread.length > 1;
+								const spec = PLATFORM_GROUPS[draft.group];
 								const over = draft.charCount > draft.charLimit;
-								const result = publishResults.find(
-									(r) => r.platform === draft.platform,
-								);
-								const copyKey = `draft-${draft.platform}`;
+								const copyKey = `draft-${draft.group}`;
 								return (
-									<Card key={draft.platform} className="min-w-0">
+									<Card key={draft.group} className="min-w-0">
 										<CardHeader>
 											<CardTitle className="flex items-center justify-between text-base gap-2">
 												<span className="flex items-center gap-2 min-w-0">
-													<Icon
-														className={`w-4 h-4 shrink-0 ${PLATFORM_COLORS[draft.platform]}`}
-													/>
-													<span className="truncate">
-														{PLATFORM_LABELS[draft.platform]}
-														{isThread &&
-															` · Thread (${draft.thread?.length})`}
-													</span>
+													<span className="truncate">{spec.label}</span>
 												</span>
 												<span
 													className={`text-xs font-mono shrink-0 ${
-														over ? "text-destructive" : "text-muted-foreground"
+														over
+															? "text-destructive"
+															: "text-muted-foreground"
 													}`}
 												>
-													{draft.charCount} / {CHAR_LIMITS[draft.platform]}
+													{draft.charCount} / {draft.charLimit}
 												</span>
 											</CardTitle>
+											<CardDescription className="flex flex-wrap items-center gap-1.5 mt-1">
+												<span className="text-xs">For:</span>
+												{draft.platforms.map((p) => {
+													const Icon = PLATFORM_ICONS[p];
+													return (
+														<span
+															key={p}
+															className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-accent"
+														>
+															<Icon
+																className={`w-3 h-3 ${PLATFORM_COLORS[p]}`}
+															/>
+															{PLATFORM_LABELS[p]}
+														</span>
+													);
+												})}
+											</CardDescription>
 										</CardHeader>
 										<CardContent className="space-y-3">
-											{isThread ? (
-												<div className="space-y-2">
-													{draft.thread?.map((post, i) => (
-														<div
-															// biome-ignore lint/suspicious/noArrayIndexKey: stable order
-															key={i}
-															className="rounded-md border border-border bg-muted/30 p-2"
-														>
-															<div className="text-[10px] text-muted-foreground mb-1">
-																{i + 1} / {draft.thread?.length}
-															</div>
-															<div className="text-sm whitespace-pre-wrap">
-																{post}
-															</div>
-															<div className="text-[10px] text-muted-foreground text-right mt-1 font-mono">
-																{post.length} / 280
-															</div>
-														</div>
-													))}
-												</div>
-											) : (
-												<Textarea
-													value={draft.content}
-													onChange={(e) =>
-														updateDraftContent(
-															draft.platform,
-															e.target.value,
-														)
-													}
-													rows={draft.platform === "linkedin" ? 10 : 5}
-													className="resize-none text-sm"
-													disabled={
-														publishing[draft.platform] || result?.success
-													}
-												/>
-											)}
+											<Textarea
+												value={draft.content}
+												onChange={(e) =>
+													updateDraftContent(draft.group, e.target.value)
+												}
+												rows={draft.group === "long-professional" ? 10 : 5}
+												className="resize-none text-sm"
+											/>
 
 											{draft.hashtags.length > 0 && (
 												<div className="flex flex-wrap gap-1">
@@ -698,9 +525,7 @@ export const Demo = () => {
 
 											<div className="flex gap-2">
 												<Button
-													onClick={() =>
-														handleCopy(copyKey, buildCopyText(draft))
-													}
+													onClick={() => handleCopy(copyKey, draft.content)}
 													variant="outline"
 													size="sm"
 													className="flex-1"
@@ -722,93 +547,30 @@ export const Demo = () => {
 													onClick={() => handleRegenerate(draft)}
 													variant="outline"
 													size="sm"
-													disabled={regenerating[draft.platform]}
+													disabled={regenerating[draft.group]}
 													title="Regenerate just this draft"
 												>
-													{regenerating[draft.platform] ? (
+													{regenerating[draft.group] ? (
 														<Loader2 className="w-4 h-4 animate-spin" />
 													) : (
 														<RefreshCw className="w-4 h-4" />
 													)}
 												</Button>
 											</div>
-
-											{publishable ? (
-												result ? (
-													<div
-														className={`flex items-start gap-2 text-sm p-2 rounded-md ${
-															result.success
-																? "bg-green-500/10 text-green-700 dark:text-green-400"
-																: "bg-destructive/10 text-destructive"
-														}`}
-													>
-														{result.success ? (
-															<CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-														) : (
-															<AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-														)}
-														<span className="text-xs">
-															{result.message}
-															{result.url && (
-																<>
-																	{" "}
-																	<a
-																		href={result.url}
-																		target="_blank"
-																		rel="noopener noreferrer"
-																		className="underline"
-																	>
-																		View post
-																	</a>
-																</>
-															)}
-														</span>
-													</div>
-												) : (
-													<Button
-														onClick={() => handlePublish(draft)}
-														disabled={
-															publishing[draft.platform] ||
-															over ||
-															!draft.content.trim()
-														}
-														size="sm"
-														className="w-full"
-													>
-														{publishing[draft.platform] ? (
-															<>
-																<Loader2 className="w-4 h-4 animate-spin" />
-																Publishing...
-															</>
-														) : (
-															<>
-																<Send className="w-4 h-4" />
-																Publish to {PLATFORM_LABELS[draft.platform]}
-															</>
-														)}
-													</Button>
-												)
-											) : (
-												<div className="text-xs text-muted-foreground text-center py-1 border border-dashed border-border rounded-md">
-													No credentials — use Copy to post manually
-												</div>
-											)}
 										</CardContent>
 									</Card>
 								);
 							})}
 						</div>
 
-						{preview && (
-							<Button
-								onClick={clearAll}
-								variant="ghost"
-								size="sm"
-								className="w-full"
-							>
-								Start over with a new article
-							</Button>
-						)}
+						<Button
+							onClick={clearAll}
+							variant="ghost"
+							size="sm"
+							className="w-full"
+						>
+							Start over with a new article
+						</Button>
 					</>
 				)}
 			</div>
@@ -849,7 +611,7 @@ export const Demo = () => {
 												<Clock className="w-3 h-3" />
 												{timeAgo(h.timestamp)}
 												<span>·</span>
-												<span>{h.platforms.length} platforms</span>
+												<span>{h.preview.drafts.length} drafts</span>
 											</div>
 										</button>
 										<button
