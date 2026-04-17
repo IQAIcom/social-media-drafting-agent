@@ -1,23 +1,17 @@
-import { AgentBuilder } from "@iqai/adk";
+import { AgentBuilder, WebFetchTool } from "@iqai/adk";
 import z from "zod";
 import { env } from "../../../env";
-import { fetchBlogPostTool } from "./tools";
 
 /**
  * Schema the draft generator must return.
  *
  * One draft per platform GROUP — the same text is later displayed for every
- * platform in that group. The agent never emits a per-platform draft.
+ * platform in that group.
  */
 export const postDraftsSchema = z.object({
 	article: z.object({
 		url: z.string(),
 		title: z.string(),
-		description: z.string(),
-		author: z.string(),
-		publishedAt: z.string(),
-		image: z.string(),
-		siteName: z.string(),
 	}),
 	drafts: z.array(
 		z.object({
@@ -37,8 +31,8 @@ export type PostDraftsOutput = z.infer<typeof postDraftsSchema>;
 /**
  * Creates the draft generator.
  *
- * Fetches the blog post (or accepts pre-cached metadata in the prompt) and
- * returns one draft per requested platform group. All char limits are passed
+ * Uses ADK-TS's built-in `web_fetch` tool to read the article, then returns
+ * one draft per requested platform group. Char limits are passed explicitly
  * in the prompt — the agent does not guess them.
  */
 export const getDraftGenerator = async () => {
@@ -47,30 +41,26 @@ export const getDraftGenerator = async () => {
 			"Fetches a blog post and generates platform-group-optimized social media drafts. Returns structured JSON.",
 		)
 		.withInstruction(
-			`You are a social media content specialist. Given a blog post URL (or pre-fetched article content), a tone, and a list of target platform GROUPS with their hard character limits:
+			`You are a social media content specialist. Given a blog post URL, a tone, and a list of target platform GROUPS with their hard character limits:
 
-1. If the article content is already provided in the prompt, USE THAT — do NOT call fetch_blog_post again.
-2. Otherwise, use the fetch_blog_post tool to read the article metadata and content.
-3. For EACH requested group, generate exactly ONE draft. The same draft will be reused verbatim for every platform in that group — write it so it works for all of them.
+1. Use the web_fetch tool to read the article. Record its title.
+2. For EACH requested group, generate exactly ONE draft. The same draft will be reused verbatim for every platform in that group — write it so it works for all of them.
 
    Group writing guidelines:
-   - **short-casual** (X + Bluesky): Punchy hook, casual voice, 2-3 hashtags. Include the article URL. Must fit the char limit given in the prompt (counting hashtags + URL).
-   - **medium-community** (Threads + Mastodon): Conversational, community-friendly. Federated-discovery hashtags are useful (1-3). Include the URL.
-   - **long-professional** (LinkedIn): Polished, authoritative framing with a clear takeaway. 3-5 relevant hashtags at the end. Include the URL.
+   - **short-casual** (X + Bluesky): Punchy hook, casual voice, 2-3 hashtags. Include the article URL. Must fit the char limit (counting hashtags + URL).
+   - **medium-community** (Threads + Mastodon): Conversational, community-friendly. 1-3 hashtags. Include the URL.
+   - **long-professional** (LinkedIn): Polished, authoritative, clear takeaway. 3-5 hashtags at the end. Include the URL.
 
-4. The hard character limit for each group is supplied in the prompt. NEVER exceed it. If you're close, trim — do not guess a higher limit.
+3. The hard character limit for each group is supplied in the prompt. NEVER exceed it. Trim if close — do not guess a higher limit.
 
-5. Apply the requested tone:
-   - **auto**: Pick a tone that fits each group (punchy for short-casual, conversational for medium-community, professional for long-professional).
-   - **professional**: Polished, authoritative.
-   - **casual**: Friendly, conversational.
-   - **educational**: Explanatory, informative.
-   - **punchy**: Bold, short sentences.
+4. Apply the requested tone:
+   - **auto**: Pick a tone that fits each group (punchy, conversational, professional).
+   - **professional / casual / educational / punchy**: Apply uniformly.
 
-6. Return ONLY valid JSON matching the output schema. No markdown fences. The \`drafts\` array contains one entry per requested group, keyed by the group name.`,
+5. Return ONLY valid JSON matching the output schema. No markdown fences. The \`article\` block must include the URL and the fetched title. The \`drafts\` array contains one entry per requested group.`,
 		)
 		.withModel(env.LLM_MODEL)
-		.withTools(fetchBlogPostTool)
+		.withTools(new WebFetchTool())
 		.withOutputSchema(postDraftsSchema)
 		.build();
 

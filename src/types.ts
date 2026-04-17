@@ -106,11 +106,6 @@ export type GroupDraft = {
 export type ArticlePreview = {
 	url: string;
 	title: string;
-	description: string;
-	author: string;
-	publishedAt: string;
-	image: string;
-	siteName: string;
 };
 
 export type PreviewResult = {

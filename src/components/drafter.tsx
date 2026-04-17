@@ -36,7 +36,7 @@ import {
 	type PreviewResult,
 	type Tone,
 } from "@/types";
-import { previewPosts, regenerateDraft } from "../actions";
+import { previewPosts, regenerateDraft } from "@/app/actions";
 
 // ───────────────────────────────────────────────────────────────────
 // Constants
@@ -393,62 +393,38 @@ export const Drafter = () => {
 					</CardContent>
 				</Card>
 
-				{/* Step 2: Article preview + drafts */}
+				{/* Step 2: Drafts */}
 				{preview && (
 					<>
-						<Card>
-							<CardHeader>
-								<CardTitle className="flex items-center justify-between text-base">
-									<span>Article</span>
-									<Button
-										variant="ghost"
-										size="sm"
-										onClick={() =>
-											handleCopy("all", buildCopyAll(editableDrafts))
-										}
-									>
-										{copiedKey === "all" ? (
-											<>
-												<ClipboardCheck className="w-4 h-4" />
-												Copied all
-											</>
-										) : (
-											<>
-												<ClipboardCopy className="w-4 h-4" />
-												Copy all drafts
-											</>
-										)}
-									</Button>
-								</CardTitle>
-							</CardHeader>
-							<CardContent className="flex gap-4 items-start">
-								{preview.article.image && (
-									<img
-										src={preview.article.image}
-										alt=""
-										className="w-24 h-24 object-cover rounded-md border border-border shrink-0"
-									/>
-								)}
-								<div className="min-w-0 flex-1">
-									<h3 className="font-semibold text-sm leading-snug mb-1">
-										{preview.article.title || "Untitled"}
-									</h3>
-									{preview.article.description && (
-										<p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-											{preview.article.description}
-										</p>
-									)}
-									<div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
-										{preview.article.siteName && (
-											<span>{preview.article.siteName}</span>
-										)}
-										{preview.article.author && (
-											<span>by {preview.article.author}</span>
-										)}
-									</div>
+						<div className="flex items-start justify-between gap-3">
+							<div className="min-w-0">
+								<div className="text-xs text-muted-foreground mb-0.5">
+									Drafts for
 								</div>
-							</CardContent>
-						</Card>
+								<h3 className="font-semibold text-sm leading-snug truncate">
+									{preview.article.title || preview.article.url}
+								</h3>
+							</div>
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() =>
+									handleCopy("all", buildCopyAll(editableDrafts))
+								}
+							>
+								{copiedKey === "all" ? (
+									<>
+										<ClipboardCheck className="w-4 h-4" />
+										Copied all
+									</>
+								) : (
+									<>
+										<ClipboardCopy className="w-4 h-4" />
+										Copy all drafts
+									</>
+								)}
+							</Button>
+						</div>
 
 						<div className="grid gap-4 md:grid-cols-2">
 							{editableDrafts.map((draft) => {
