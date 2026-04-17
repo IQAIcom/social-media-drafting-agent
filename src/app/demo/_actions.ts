@@ -1,25 +1,48 @@
 "use server";
 
-import { getDraftRunner } from "@/agents/coordinator/agent";
+import {
+	getDraftRunner,
+	getPublishRunner,
+} from "@/agents/coordinator/agent";
 import {
 	type ArticlePreview,
 	type GroupDraft,
 	groupsForPlatforms,
 	PLATFORM_GROUPS,
 	type Platform,
+	type PlatformAvailability,
 	type PlatformGroup,
 	type PreviewResult,
+	type PublishResult,
 	type Tone,
 } from "@/types";
+import { getPlatformAvailability } from "../../../env";
 
 // ───────────────────────────────────────────────────────────────────
-// Singleton runner — avoid re-initializing on every call.
+// Singleton runners — avoid re-initializing on every call.
 // ───────────────────────────────────────────────────────────────────
 let draftRunner: Awaited<ReturnType<typeof getDraftRunner>> | null = null;
+let publishRunner: Awaited<ReturnType<typeof getPublishRunner>> | null = null;
 
 async function ensureDraftRunner() {
 	if (!draftRunner) draftRunner = await getDraftRunner();
 	return draftRunner;
+}
+
+async function ensurePublishRunner() {
+	if (!publishRunner) publishRunner = await getPublishRunner();
+	return publishRunner;
+}
+
+// ───────────────────────────────────────────────────────────────────
+// Availability — read during SSR / on mount to decide which publish
+// buttons to render.
+// ───────────────────────────────────────────────────────────────────
+
+export async function getAvailability(): Promise<{
+	platforms: PlatformAvailability;
+}> {
+	return { platforms: getPlatformAvailability() };
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -316,4 +339,61 @@ Return JSON with the article block AND exactly one draft for the "${group}" grou
 	}
 
 	return buildDraft(match.group, platforms, match.content, match.hashtags);
+}
+
+/**
+ * Publish a single draft to one platform.
+ *
+ * Group drafts are shared across multiple platforms, so the caller passes
+ * which specific platform this publish call is targeting. Only works when
+ * credentials for that platform are configured — the UI should check
+ * availability and hide the publish button otherwise.
+ */
+export async function publishPost(params: {
+	platform: Platform;
+	content: string;
+}): Promise<PublishResult> {
+	const availability = getPlatformAvailability();
+	if (!availability[params.platform]) {
+		return {
+			platform: params.platform,
+			success: false,
+			message: `No credentials configured for ${params.platform}. Use Copy to post manually.`,
+		};
+	}
+
+	try {
+		const runner = await ensurePublishRunner();
+
+		const prompt = `Publish to ${params.platform}:
+
+${params.content}`;
+
+		const response = await runner.ask(prompt);
+
+		try {
+			const parsed = JSON.parse(
+				typeof response === "string" ? response : JSON.stringify(response),
+			);
+			return {
+				platform: params.platform,
+				success: parsed.success ?? true,
+				message: parsed.message ?? "Published",
+				url: parsed.url,
+			};
+		} catch {
+			return {
+				platform: params.platform,
+				success: true,
+				message: typeof response === "string" ? response : "Published",
+			};
+		}
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return {
+			platform: params.platform,
+			success: false,
+			message: `Failed to publish: ${message}`,
+		};
+	}
 }

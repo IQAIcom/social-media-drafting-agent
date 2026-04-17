@@ -117,3 +117,17 @@ export type PreviewResult = {
 	article: ArticlePreview;
 	drafts: GroupDraft[];
 };
+
+export type PublishResult = {
+	platform: Platform;
+	success: boolean;
+	message: string;
+	url?: string;
+};
+
+/**
+ * Which platforms this deployment can auto-publish to.
+ * Computed at runtime from configured environment variables.
+ * Platforms not listed as `true` are copy-only.
+ */
+export type PlatformAvailability = Record<Platform, boolean>;
