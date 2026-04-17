@@ -1,6 +1,6 @@
 import { Sparkles } from "lucide-react";
+import { Drafter } from "./_components/drafter";
 import { Navbar } from "./_components/navbar";
-import { Demo } from "./demo/demo";
 
 export default function Home() {
 	return (
@@ -23,11 +23,11 @@ export default function Home() {
 						</h1>
 
 						<p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto">
-							Paste a blog URL. The agent reads the article and drafts posts for LinkedIn, X, Bluesky, Threads, and Mastodon — publish where you have credentials, copy the rest.
+							Paste a blog URL. The agent reads the article and drafts posts for LinkedIn, X, Bluesky, Threads, and Mastodon — ready to copy and share.
 						</p>
 					</div>
 
-					<Demo />
+					<Drafter />
 				</main>
 			</div>
 		</>

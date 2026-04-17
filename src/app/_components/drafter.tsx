@@ -2,7 +2,6 @@
 
 import {
 	AlertCircle,
-	CheckCircle2,
 	ClipboardCheck,
 	ClipboardCopy,
 	Clock,
@@ -12,7 +11,6 @@ import {
 	Loader2,
 	MessageCircle,
 	RefreshCw,
-	Send,
 	Sparkles,
 	Trash2,
 	Twitter,
@@ -34,18 +32,11 @@ import {
 	PLATFORM_GROUPS,
 	PLATFORM_LABELS,
 	type Platform,
-	type PlatformAvailability,
 	type PlatformGroup,
 	type PreviewResult,
-	type PublishResult,
 	type Tone,
 } from "@/types";
-import {
-	getAvailability,
-	previewPosts,
-	publishPost,
-	regenerateDraft,
-} from "./_actions";
+import { previewPosts, regenerateDraft } from "../actions";
 
 // ───────────────────────────────────────────────────────────────────
 // Constants
@@ -76,7 +67,7 @@ const PLATFORM_COLORS: Record<Platform, string> = {
 };
 
 // ───────────────────────────────────────────────────────────────────
-// Local history (sectionmemory via localStorage)
+// Local history (localStorage)
 // ───────────────────────────────────────────────────────────────────
 
 const HISTORY_KEY = "sma:history";
@@ -88,7 +79,6 @@ type HistoryEntry = {
 	tone: Tone;
 	platforms: Platform[];
 	preview: PreviewResult;
-	publishResults: PublishResult[];
 	timestamp: number;
 };
 
@@ -138,7 +128,7 @@ const timeAgo = (ts: number) => {
 // Component
 // ───────────────────────────────────────────────────────────────────
 
-export const Demo = () => {
+export const Drafter = () => {
 	// Form state
 	const [url, setUrl] = useState("");
 	const [tone, setTone] = useState<Tone>("auto");
@@ -149,11 +139,6 @@ export const Demo = () => {
 		"threads",
 		"mastodon",
 	]);
-
-	// Availability (from server)
-	const [availability, setAvailability] = useState<{
-		platforms: PlatformAvailability;
-	} | null>(null);
 
 	// Generation state
 	const [isGenerating, setIsGenerating] = useState(false);
@@ -169,33 +154,12 @@ export const Demo = () => {
 		"medium-community": false,
 		"long-professional": false,
 	});
-	const [publishing, setPublishing] = useState<Record<Platform, boolean>>({
-		linkedin: false,
-		x: false,
-		bluesky: false,
-		threads: false,
-		mastodon: false,
-	});
-	const [publishResults, setPublishResults] = useState<PublishResult[]>([]);
 	const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
 	// History
 	const [history, setHistory] = useState<HistoryEntry[]>([]);
 
 	useEffect(() => {
-		getAvailability()
-			.then(setAvailability)
-			.catch(() => {
-				setAvailability({
-					platforms: {
-						linkedin: false,
-						x: false,
-						bluesky: false,
-						threads: false,
-						mastodon: false,
-					},
-				});
-			});
 		setHistory(loadHistory());
 	}, []);
 
@@ -212,15 +176,14 @@ export const Demo = () => {
 			tone,
 			platforms,
 			preview,
-			publishResults,
 			timestamp: Date.now(),
 		};
 		setHistory((current) => {
 			const without = current.filter((h) => h.url !== entry.url);
 			return [entry, ...without].slice(0, MAX_HISTORY);
 		});
-		// biome-ignore lint/correctness/useExhaustiveDependencies: persist on preview/results change
-	}, [preview, publishResults]);
+		// biome-ignore lint/correctness/useExhaustiveDependencies: persist on preview change
+	}, [preview]);
 
 	const togglePlatform = (p: Platform) => {
 		setPlatforms((cur) =>
@@ -231,7 +194,6 @@ export const Demo = () => {
 	const resetResults = () => {
 		setPreview(null);
 		setEditableDrafts([]);
-		setPublishResults([]);
 		setError(null);
 	};
 
@@ -276,36 +238,11 @@ export const Demo = () => {
 			setEditableDrafts((cur) =>
 				cur.map((d) => (d.group === draft.group ? fresh : d)),
 			);
-			// The draft has changed — drop any prior publish results for this
-			// group's platforms so the user can publish the fresh copy.
-			setPublishResults((cur) =>
-				cur.filter((r) => !draft.platforms.includes(r.platform)),
-			);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			setError(`Regenerate failed: ${message}`);
 		} finally {
 			setRegenerating((r) => ({ ...r, [draft.group]: false }));
-		}
-	};
-
-	const handlePublish = async (platform: Platform, content: string) => {
-		setPublishing((p) => ({ ...p, [platform]: true }));
-		setError(null);
-		try {
-			const result = await publishPost({ platform, content });
-			setPublishResults((cur) => [
-				...cur.filter((r) => r.platform !== platform),
-				result,
-			]);
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			setPublishResults((cur) => [
-				...cur.filter((r) => r.platform !== platform),
-				{ platform, success: false, message: `Failed: ${message}` },
-			]);
-		} finally {
-			setPublishing((p) => ({ ...p, [platform]: false }));
 		}
 	};
 
@@ -325,7 +262,6 @@ export const Demo = () => {
 		setPlatforms(entry.platforms);
 		setPreview(entry.preview);
 		setEditableDrafts(entry.preview.drafts);
-		setPublishResults(entry.publishResults ?? []);
 		setError(null);
 	};
 
@@ -349,8 +285,8 @@ export const Demo = () => {
 							Generate social media drafts
 						</CardTitle>
 						<CardDescription>
-							Paste a blog URL. Review and edit the drafts, then publish
-							where you have credentials or copy the rest.
+							Paste a blog URL. Review and edit the drafts, then copy and
+							post them manually.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
@@ -404,7 +340,6 @@ export const Demo = () => {
 									{ALL_PLATFORMS.map((p) => {
 										const Icon = PLATFORM_ICONS[p];
 										const active = platforms.includes(p);
-										const publishable = availability?.platforms[p];
 										return (
 											<button
 												key={p}
@@ -421,11 +356,6 @@ export const Demo = () => {
 													className={`w-4 h-4 ${PLATFORM_COLORS[p]}`}
 												/>
 												{PLATFORM_LABELS[p]}
-												{active && !publishable && (
-													<span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-														copy-only
-													</span>
-												)}
 											</button>
 										);
 									})}
@@ -616,100 +546,6 @@ export const Demo = () => {
 														<RefreshCw className="w-4 h-4" />
 													)}
 												</Button>
-											</div>
-
-											{/* Per-platform publish row. One entry per platform
-												 in this group: publishes the SAME draft content to
-												 each chosen platform. Falls back to a copy-only
-												 hint when credentials aren't set. */}
-											<div className="space-y-1.5 pt-1">
-												{draft.platforms.map((p) => {
-													const Icon = PLATFORM_ICONS[p];
-													const publishable =
-														availability?.platforms[p] ?? false;
-													const result = publishResults.find(
-														(r) => r.platform === p,
-													);
-													if (result) {
-														return (
-															<div
-																key={p}
-																className={`flex items-start gap-2 text-xs p-2 rounded-md ${
-																	result.success
-																		? "bg-green-500/10 text-green-700 dark:text-green-400"
-																		: "bg-destructive/10 text-destructive"
-																}`}
-															>
-																{result.success ? (
-																	<CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
-																) : (
-																	<AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-																)}
-																<span>
-																	<strong>{PLATFORM_LABELS[p]}:</strong>{" "}
-																	{result.message}
-																	{result.url && (
-																		<>
-																			{" "}
-																			<a
-																				href={result.url}
-																				target="_blank"
-																				rel="noopener noreferrer"
-																				className="underline"
-																			>
-																				View post
-																			</a>
-																		</>
-																	)}
-																</span>
-															</div>
-														);
-													}
-													if (!publishable) {
-														return (
-															<div
-																key={p}
-																className="flex items-center gap-2 text-xs text-muted-foreground px-2 py-1.5 border border-dashed border-border rounded-md"
-															>
-																<Icon
-																	className={`w-3.5 h-3.5 ${PLATFORM_COLORS[p]}`}
-																/>
-																<span className="flex-1 truncate">
-																	{PLATFORM_LABELS[p]} — no credentials,
-																	copy manually
-																</span>
-															</div>
-														);
-													}
-													return (
-														<Button
-															key={p}
-															onClick={() =>
-																handlePublish(p, draft.content)
-															}
-															disabled={
-																publishing[p] ||
-																over ||
-																!draft.content.trim()
-															}
-															size="sm"
-															variant="outline"
-															className="w-full justify-start"
-														>
-															{publishing[p] ? (
-																<Loader2 className="w-4 h-4 animate-spin" />
-															) : (
-																<>
-																	<Icon
-																		className={`w-4 h-4 ${PLATFORM_COLORS[p]}`}
-																	/>
-																	<Send className="w-3.5 h-3.5" />
-																	Publish to {PLATFORM_LABELS[p]}
-																</>
-															)}
-														</Button>
-													);
-												})}
 											</div>
 										</CardContent>
 									</Card>

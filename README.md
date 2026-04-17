@@ -4,18 +4,18 @@
   <h1>Social Media Drafting Agent</h1>
   <b>Turn blog posts into platform-optimized social drafts</b>
   <br/>
-  <i>Next.js • ADK-TS • Five platforms, grouped into three drafts</i>
+  <i>Next.js • ADK-TS • Copy-first drafting</i>
 </div>
 
 ---
 
-Paste a blog post URL. The agent reads the article, drafts posts for **LinkedIn, X, Bluesky, Threads, and Mastodon** in the tone you pick, and lets you review, edit, and copy — all from one page. Publishing is intentionally out of scope: you copy each draft and post it yourself.
+Paste a blog post URL. The agent reads the article and drafts posts for **LinkedIn, X, Bluesky, Threads, and Mastodon** in the tone you pick, ready to copy and share.
 
 **Built with [ADK-TS](https://adk.iqai.com/) — the TypeScript-native AI agent framework.**
 
-## What makes this different
+## How it writes drafts
 
-The agent does not write one draft per platform. Instead, the five supported platforms are bucketed into three writing archetypes, and the agent writes exactly **one draft per group**. That draft is reused for every platform in the group.
+The five platforms are bucketed into three writing archetypes, and the agent writes exactly **one draft per group**. Each draft is reused for every platform in its group.
 
 | Group | Platforms | Char limit |
 |---|---|---|
@@ -23,19 +23,18 @@ The agent does not write one draft per platform. Instead, the five supported pla
 | `medium-community` | Threads, Mastodon | 500 |
 | `long-professional` | LinkedIn | 3000 |
 
-**Worst case: 3 LLM drafts regardless of how many platforms you pick.** Char limits are passed to the agent in the prompt — it doesn't guess.
+Worst case: 3 LLM drafts regardless of how many platforms you pick. Char limits are passed to the agent in the prompt — it doesn't guess.
 
 ## Features
 
-- **5 platforms, 3 drafts** — one tailored draft per platform group, not per platform
-- **Copy-first** — no publishing step, no credentials, no OAuth. Every draft is copyable
-- **Editable drafts** — tweak content inline. Live character counter against the group's hard limit
-- **Regenerate per draft** — don't like the short-casual post but love the LinkedIn one? Regenerate just that group
-- **Auto tone** — the agent picks a group-appropriate tone by default; or force professional / casual / educational / punchy across all
-- **Rich article preview** — shows the article's cover image, title, description, author, and site name
-- **Local history** — your 10 most recent articles are stored in your browser's localStorage. Click one to restore its drafts
-- **Article cache** — fetched articles are cached server-side for 1 hour; regenerating drafts doesn't re-fetch
-- **Copy all** — grab every draft formatted with group labels in one click
+- **Copy-first** — no publishing, no credentials, no OAuth
+- **Editable drafts** — tweak content inline with a live character counter against each draft's hard limit
+- **Regenerate any draft** — pick a different angle for a single draft without re-running everything (uses the cached article, so it's fast)
+- **Auto tone** — the agent picks a fitting tone per draft, or force professional / casual / educational / punchy across all
+- **Article preview** — shows cover image, title, description, author, and site name
+- **Local history** — your 10 most recent articles are saved in localStorage; click one to restore its drafts
+- **Article cache** — fetched articles are cached server-side for 1 hour, so regenerating is cheap
+- **Copy all** — grab every draft with one click, formatted with clear section headers
 
 ## How it works
 
@@ -43,12 +42,11 @@ The agent does not write one draft per platform. Instead, the five supported pla
 Browser (Next.js App Router)
    │
    ▼
-Server Actions:
+Server Actions (src/app/actions.ts):
   previewPosts(url, tone, platforms)
        ↓ compute active groups from selected platforms
-       ↓ check server-side cache
-       ↓ fetch article if miss
-       ↓ call Draft Generator Agent with group list + char limits
+       ↓ check server-side cache, fetch if miss
+       ↓ call Draft Generator with group list + char limits
        ↓ return { article, drafts[] } (one per group)
 
   regenerateDraft(url, group, platforms, tone)
@@ -57,18 +55,11 @@ Server Actions:
        ↓ return one fresh draft
 ```
 
-Each server action reuses a cached agent runner (singleton) so the LLM client isn't re-initialized on every request.
-
-## Design notes
-
-- **Group-based drafts** — the five platforms collapse into three writing archetypes. Writing once per group keeps LLM cost bounded and avoids near-identical drafts across similar platforms (e.g., Threads vs Mastodon).
-- **Explicit limits in the prompt** — the agent never guesses char limits; they're passed in every prompt.
-- **Strongly typed agent output** — the draft generator uses `withOutputSchema` from ADK-TS to return typed JSON.
-- **Session memory** — recent articles are saved to localStorage (not the server). Your history is private to your browser.
+The agent runner is cached as a singleton so the LLM client isn't re-initialized on every request.
 
 ## Prerequisites
 
-- Node.js ≥ 22
+- Node.js >= 22
 - pnpm
 - Google AI API key ([aistudio.google.com/api-keys](https://aistudio.google.com/api-keys))
 
@@ -77,7 +68,7 @@ Each server action reuses a cached agent runner (singleton) so the LLM client is
 ```bash
 pnpm install
 cp .env.example .env
-# Edit .env — only GOOGLE_API_KEY is required.
+# Edit .env — set GOOGLE_API_KEY
 pnpm dev
 ```
 
@@ -96,20 +87,22 @@ Open [http://localhost:3000](http://localhost:3000), paste a blog URL, pick tone
 ```text
 src/
 ├── agents/
-│   ├── draft-generator/
-│   │   ├── agent.ts                         # getDraftGenerator (withOutputSchema)
-│   │   └── tools.ts                         # fetch_blog_post (metadata extraction)
-│   └── coordinator/
-│       └── agent.ts                         # getDraftRunner
+│   └── draft-generator/
+│       ├── agent.ts              # getDraftGenerator (withOutputSchema)
+│       └── tools.ts              # fetch_blog_post tool (wraps lib/article-fetch)
 ├── app/
-│   ├── page.tsx                             # Landing + tool
-│   ├── _components/navbar.tsx               # Top navbar
-│   └── demo/
-│       ├── demo.tsx                         # Main UI (form, drafts, history)
-│       └── _actions.ts                      # Server actions + article cache
-├── components/ui/                           # shadcn primitives
-├── lib/utils.ts                             # cn() utility
-└── types.ts                                 # Platform / Group / Draft types
+│   ├── _components/
+│   │   ├── drafter.tsx           # main UI (form, drafts, history)
+│   │   └── navbar.tsx            # top navbar
+│   ├── actions.ts                # server actions (previewPosts, regenerateDraft)
+│   ├── layout.tsx
+│   ├── page.tsx
+│   └── globals.css
+├── components/ui/                # shadcn primitives
+├── lib/
+│   ├── article-fetch.ts          # shared HTML fetch + metadata parse
+│   └── utils.ts                  # cn() utility
+└── types.ts                      # Platform / Group / Draft types
 ```
 
 ## Limitations
@@ -122,7 +115,3 @@ src/
 
 - [ADK-TS docs](https://adk.iqai.com/)
 - [ADK-TS plugins](https://adk.iqai.com/docs/framework/plugins)
-
----
-
-**Built for demonstration.**
