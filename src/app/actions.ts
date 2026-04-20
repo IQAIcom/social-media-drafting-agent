@@ -13,7 +13,9 @@ import {
 	type Tone,
 } from "@/types";
 
-// Singleton runner — avoid re-initializing on every call.
+// Singleton runner — avoid re-initializing on every call. The
+// WebFetchCachePlugin is attached to this runner, so the URL cache
+// survives across requests for the lifetime of the process.
 let draftRunner: Awaited<ReturnType<typeof getDraftGenerator>> | null = null;
 
 async function ensureDraftRunner() {
@@ -97,7 +99,8 @@ type AgentOutput = {
 
 /**
  * Generate one draft per selected platform. The agent fetches the article
- * itself via its built-in web_fetch tool.
+ * itself via its built-in `web_fetch` tool (cached by URL via
+ * `WebFetchCachePlugin`).
  */
 export async function previewPosts(params: {
 	url: string;
@@ -138,8 +141,8 @@ Return exactly ${platforms.length} draft${platforms.length === 1 ? "" : "s"} —
 }
 
 /**
- * Regenerate a single platform's draft. The agent re-fetches the article —
- * fast enough for a demo, no cache needed.
+ * Regenerate a single platform's draft. The URL cache hits on re-fetch,
+ * so regenerate doesn't pay the article-download cost again.
  */
 export async function regenerateDraft(params: {
 	url: string;
