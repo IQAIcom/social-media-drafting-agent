@@ -1,24 +1,4 @@
-/**
- * Shared types for the content-drafting workflow.
- *
- * This project focuses on *drafting* social media copy from a blog post —
- * publishing is intentionally out of scope. We generate one draft per
- * platform group (see PLATFORM_GROUPS below) and reuse it for every
- * platform in that group. Worst case: 3 LLM drafts regardless of how
- * many platforms the user picks.
- */
-
-export type Platform =
-	| "linkedin"
-	| "x"
-	| "bluesky"
-	| "threads"
-	| "mastodon";
-
-export type PlatformGroup =
-	| "short-casual"
-	| "medium-community"
-	| "long-professional";
+export type Platform = "linkedin" | "x" | "threads";
 
 export type Tone =
 	| "auto"
@@ -27,79 +7,58 @@ export type Tone =
 	| "educational"
 	| "punchy";
 
-export type PlatformGroupSpec = {
-	platforms: Platform[];
+/** X and Threads both support single posts or a chained thread. */
+export type PostFormat = "post" | "thread";
+
+/** Bounds and default for the number of posts in a thread. */
+export const THREAD_LENGTH_MIN = 2;
+export const THREAD_LENGTH_MAX = 10;
+export const THREAD_LENGTH_DEFAULT = 4;
+
+/** Platforms that can be posted as a chained thread. */
+export const THREADABLE_PLATFORMS: Platform[] = ["x", "threads"];
+
+export type PlatformSpec = {
 	charLimit: number;
 	label: string;
 	description: string;
 };
 
-/**
- * The three draft archetypes. One LLM draft is generated per group and
- * reused across every platform in that group.
- */
-export const PLATFORM_GROUPS: Record<PlatformGroup, PlatformGroupSpec> = {
-	"short-casual": {
-		platforms: ["x", "bluesky"],
-		charLimit: 280,
-		label: "Short & casual",
-		description: "One punchy post shared by X and Bluesky.",
-	},
-	"medium-community": {
-		platforms: ["threads", "mastodon"],
-		charLimit: 500,
-		label: "Medium community",
-		description: "A conversational post shared by Threads and Mastodon.",
-	},
-	"long-professional": {
-		platforms: ["linkedin"],
+export const PLATFORM_SPECS: Record<Platform, PlatformSpec> = {
+	linkedin: {
 		charLimit: 3000,
-		label: "Long-form professional",
-		description: "An in-depth post for LinkedIn.",
+		label: "LinkedIn",
+		description: "An in-depth, professional post for LinkedIn.",
+	},
+	x: {
+		charLimit: 280,
+		label: "X (Twitter)",
+		description: "A punchy, casual post for X.",
+	},
+	threads: {
+		charLimit: 500,
+		label: "Threads",
+		description: "A conversational, community-friendly post for Threads.",
 	},
 };
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
 	linkedin: "LinkedIn",
 	x: "X (Twitter)",
-	bluesky: "Bluesky",
 	threads: "Threads",
-	mastodon: "Mastodon",
 };
 
 /** Platforms the user can pick. Order is the display order. */
-export const ALL_PLATFORMS: Platform[] = [
-	"linkedin",
-	"x",
-	"bluesky",
-	"threads",
-	"mastodon",
-];
+export const ALL_PLATFORMS: Platform[] = ["linkedin", "x", "threads"];
 
-/**
- * Given a set of selected platforms, return the groups that contain at
- * least one of them — ordered by the canonical group order below.
- */
-const GROUP_ORDER: PlatformGroup[] = [
-	"long-professional",
-	"medium-community",
-	"short-casual",
-];
-
-export const groupsForPlatforms = (selected: Platform[]): PlatformGroup[] => {
-	const set = new Set(selected);
-	return GROUP_ORDER.filter((g) =>
-		PLATFORM_GROUPS[g].platforms.some((p) => set.has(p)),
-	);
-};
-
-export type GroupDraft = {
-	group: PlatformGroup;
-	/** Platforms (from the user's selection) that this draft applies to. */
-	platforms: Platform[];
+export type PlatformDraft = {
+	platform: Platform;
 	content: string;
+	/** When set, this draft is a chained thread (X or Threads). `content` is the joined view. */
+	segments?: string[];
 	hashtags: string[];
 	charLimit: number;
+	/** For single posts: content length. For threads: longest segment length. */
 	charCount: number;
 };
 
@@ -110,5 +69,5 @@ export type ArticlePreview = {
 
 export type PreviewResult = {
 	article: ArticlePreview;
-	drafts: GroupDraft[];
+	drafts: PlatformDraft[];
 };

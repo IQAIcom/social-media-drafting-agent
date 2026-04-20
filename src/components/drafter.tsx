@@ -5,7 +5,6 @@ import {
 	ClipboardCheck,
 	ClipboardCopy,
 	Clock,
-	Globe,
 	History,
 	Linkedin,
 	Loader2,
@@ -28,12 +27,16 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
 	ALL_PLATFORMS,
-	type GroupDraft,
-	PLATFORM_GROUPS,
 	PLATFORM_LABELS,
+	PLATFORM_SPECS,
 	type Platform,
-	type PlatformGroup,
+	type PlatformDraft,
+	type PostFormat,
 	type PreviewResult,
+	THREAD_LENGTH_DEFAULT,
+	THREAD_LENGTH_MAX,
+	THREAD_LENGTH_MIN,
+	THREADABLE_PLATFORMS,
 	type Tone,
 } from "@/types";
 import { previewPosts, regenerateDraft } from "@/app/actions";
@@ -43,7 +46,7 @@ import { previewPosts, regenerateDraft } from "@/app/actions";
 // ───────────────────────────────────────────────────────────────────
 
 const TONES: { value: Tone; label: string; description: string }[] = [
-	{ value: "auto", label: "Auto", description: "Group-appropriate" },
+	{ value: "auto", label: "Auto", description: "Platform-appropriate" },
 	{ value: "professional", label: "Professional", description: "Polished" },
 	{ value: "casual", label: "Casual", description: "Friendly" },
 	{ value: "educational", label: "Educational", description: "Explanatory" },
@@ -53,17 +56,13 @@ const TONES: { value: Tone; label: string; description: string }[] = [
 const PLATFORM_ICONS: Record<Platform, typeof Linkedin> = {
 	linkedin: Linkedin,
 	x: Twitter,
-	bluesky: Globe,
 	threads: MessageCircle,
-	mastodon: Globe,
 };
 
 const PLATFORM_COLORS: Record<Platform, string> = {
 	linkedin: "text-blue-600 dark:text-blue-400",
 	x: "text-foreground",
-	bluesky: "text-sky-500",
 	threads: "text-foreground",
-	mastodon: "text-purple-500",
 };
 
 // ───────────────────────────────────────────────────────────────────
@@ -78,6 +77,8 @@ type HistoryEntry = {
 	url: string;
 	tone: Tone;
 	platforms: Platform[];
+	format: PostFormat;
+	threadLength: number;
 	preview: PreviewResult;
 	timestamp: number;
 };
@@ -110,12 +111,21 @@ const withUrl = (content: string, url: string): string => {
 	return `${content}\n\n${url}`;
 };
 
-const buildCopyAll = (drafts: GroupDraft[], url: string): string =>
+const buildDraftCopy = (draft: PlatformDraft, url: string): string => {
+	if (draft.segments && draft.segments.length > 1) {
+		const n = draft.segments.length;
+		return draft.segments
+			.map((s, i) => `(${i + 1}/${n})\n${s}`)
+			.join("\n\n---\n\n");
+	}
+	return withUrl(draft.content, url);
+};
+
+const buildCopyAll = (drafts: PlatformDraft[], url: string): string =>
 	drafts
 		.map((d) => {
-			const label = PLATFORM_GROUPS[d.group].label;
-			const platforms = d.platforms.map((p) => PLATFORM_LABELS[p]).join(", ");
-			return `### ${label} — for ${platforms}\n\n${withUrl(d.content, url)}\n`;
+			const label = PLATFORM_LABELS[d.platform];
+			return `### ${label}\n\n${buildDraftCopy(d, url)}\n`;
 		})
 		.join("\n---\n\n");
 
@@ -140,24 +150,24 @@ export const Drafter = () => {
 	const [platforms, setPlatforms] = useState<Platform[]>([
 		"linkedin",
 		"x",
-		"bluesky",
 		"threads",
-		"mastodon",
 	]);
+	const [format, setFormat] = useState<PostFormat>("post");
+	const [threadLength, setThreadLength] = useState<number>(
+		THREAD_LENGTH_DEFAULT,
+	);
 
 	// Generation state
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [preview, setPreview] = useState<PreviewResult | null>(null);
-	const [editableDrafts, setEditableDrafts] = useState<GroupDraft[]>([]);
+	const [editableDrafts, setEditableDrafts] = useState<PlatformDraft[]>([]);
 	const [error, setError] = useState<string | null>(null);
 
 	// Per-draft UI state
-	const [regenerating, setRegenerating] = useState<
-		Record<PlatformGroup, boolean>
-	>({
-		"short-casual": false,
-		"medium-community": false,
-		"long-professional": false,
+	const [regenerating, setRegenerating] = useState<Record<Platform, boolean>>({
+		linkedin: false,
+		x: false,
+		threads: false,
 	});
 	const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -180,6 +190,8 @@ export const Drafter = () => {
 			url: preview.article.url,
 			tone,
 			platforms,
+			format,
+			threadLength,
 			preview,
 			timestamp: Date.now(),
 		};
@@ -210,7 +222,13 @@ export const Drafter = () => {
 		setIsGenerating(true);
 
 		try {
-			const result = await previewPosts({ url, tone, platforms });
+			const result = await previewPosts({
+				url,
+				tone,
+				platforms,
+				format,
+				threadLength,
+			});
 			setPreview(result);
 			setEditableDrafts(result.drafts);
 		} catch (err) {
@@ -221,33 +239,55 @@ export const Drafter = () => {
 		}
 	};
 
-	const updateDraftContent = (group: PlatformGroup, content: string) => {
+	const updateDraftContent = (platform: Platform, content: string) => {
 		setEditableDrafts((cur) =>
 			cur.map((d) =>
-				d.group === group ? { ...d, content, charCount: content.length } : d,
+				d.platform === platform
+					? { ...d, content, charCount: content.length }
+					: d,
 			),
 		);
 	};
 
-	const handleRegenerate = async (draft: GroupDraft) => {
+	const updateThreadSegment = (
+		platform: Platform,
+		index: number,
+		value: string,
+	) => {
+		setEditableDrafts((cur) =>
+			cur.map((d) => {
+				if (d.platform !== platform || !d.segments) return d;
+				const segments = d.segments.map((s, i) => (i === index ? value : s));
+				const content = segments.join("\n\n");
+				const charCount = segments.reduce(
+					(m, s) => Math.max(m, s.length),
+					0,
+				);
+				return { ...d, segments, content, charCount };
+			}),
+		);
+	};
+
+	const handleRegenerate = async (draft: PlatformDraft) => {
 		if (!preview) return;
-		setRegenerating((r) => ({ ...r, [draft.group]: true }));
+		setRegenerating((r) => ({ ...r, [draft.platform]: true }));
 		setError(null);
 		try {
 			const fresh = await regenerateDraft({
 				url: preview.article.url,
-				group: draft.group,
-				platforms,
+				platform: draft.platform,
 				tone,
+				format,
+				threadLength,
 			});
 			setEditableDrafts((cur) =>
-				cur.map((d) => (d.group === draft.group ? fresh : d)),
+				cur.map((d) => (d.platform === draft.platform ? fresh : d)),
 			);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			setError(`Regenerate failed: ${message}`);
 		} finally {
-			setRegenerating((r) => ({ ...r, [draft.group]: false }));
+			setRegenerating((r) => ({ ...r, [draft.platform]: false }));
 		}
 	};
 
@@ -265,6 +305,8 @@ export const Drafter = () => {
 		setUrl(entry.url);
 		setTone(entry.tone);
 		setPlatforms(entry.platforms);
+		setFormat(entry.format ?? "post");
+		setThreadLength(entry.threadLength ?? THREAD_LENGTH_DEFAULT);
 		setPreview(entry.preview);
 		setEditableDrafts(entry.preview.drafts);
 		setError(null);
@@ -365,6 +407,84 @@ export const Drafter = () => {
 										);
 									})}
 								</div>
+
+								{platforms.some((p) =>
+									THREADABLE_PLATFORMS.includes(p),
+								) && (
+									<div className="mt-3 space-y-2">
+										<div className="flex items-center gap-2 flex-wrap">
+											<span className="text-xs text-muted-foreground">
+												Format for{" "}
+												{platforms
+													.filter((p) => THREADABLE_PLATFORMS.includes(p))
+													.map((p) => PLATFORM_LABELS[p])
+													.join(" & ")}
+												:
+											</span>
+											{(["post", "thread"] as PostFormat[]).map((f) => (
+												<button
+													key={f}
+													type="button"
+													onClick={() => setFormat(f)}
+													disabled={isGenerating}
+													className={`px-3 py-1 rounded-md border text-xs transition-all ${
+														format === f
+															? "border-primary bg-primary/10 ring-2 ring-primary"
+															: "border-border bg-background hover:bg-accent"
+													}`}
+												>
+													{f === "post" ? "Single post" : "Thread"}
+												</button>
+											))}
+										</div>
+
+										{format === "thread" && (
+											<div className="flex items-center gap-2 flex-wrap">
+												<span className="text-xs text-muted-foreground">
+													Thread length:
+												</span>
+												<div className="inline-flex items-center gap-1">
+													<button
+														type="button"
+														onClick={() =>
+															setThreadLength((n) =>
+																Math.max(THREAD_LENGTH_MIN, n - 1),
+															)
+														}
+														disabled={
+															isGenerating || threadLength <= THREAD_LENGTH_MIN
+														}
+														className="w-7 h-7 rounded-md border border-border bg-background hover:bg-accent text-sm disabled:opacity-50"
+														aria-label="Decrease thread length"
+													>
+														−
+													</button>
+													<span className="min-w-[2ch] text-center text-xs font-mono tabular-nums">
+														{threadLength}
+													</span>
+													<button
+														type="button"
+														onClick={() =>
+															setThreadLength((n) =>
+																Math.min(THREAD_LENGTH_MAX, n + 1),
+															)
+														}
+														disabled={
+															isGenerating || threadLength >= THREAD_LENGTH_MAX
+														}
+														className="w-7 h-7 rounded-md border border-border bg-background hover:bg-accent text-sm disabled:opacity-50"
+														aria-label="Increase thread length"
+													>
+														+
+													</button>
+												</div>
+												<span className="text-[11px] text-muted-foreground">
+													posts ({THREAD_LENGTH_MIN}–{THREAD_LENGTH_MAX})
+												</span>
+											</div>
+										)}
+									</div>
+								)}
 							</div>
 
 							<Button
@@ -436,14 +556,18 @@ export const Drafter = () => {
 
 						<div className="grid gap-4 md:grid-cols-2">
 							{editableDrafts.map((draft) => {
-								const spec = PLATFORM_GROUPS[draft.group];
+								const spec = PLATFORM_SPECS[draft.platform];
+								const Icon = PLATFORM_ICONS[draft.platform];
 								const over = draft.charCount > draft.charLimit;
-								const copyKey = `draft-${draft.group}`;
+								const copyKey = `draft-${draft.platform}`;
 								return (
-									<Card key={draft.group} className="min-w-0">
+									<Card key={draft.platform} className="min-w-0">
 										<CardHeader>
 											<CardTitle className="flex items-center justify-between text-base gap-2">
 												<span className="flex items-center gap-2 min-w-0">
+													<Icon
+														className={`w-4 h-4 shrink-0 ${PLATFORM_COLORS[draft.platform]}`}
+													/>
 													<span className="truncate">{spec.label}</span>
 												</span>
 												<span
@@ -456,33 +580,63 @@ export const Drafter = () => {
 													{draft.charCount} / {draft.charLimit}
 												</span>
 											</CardTitle>
-											<CardDescription className="flex flex-wrap items-center gap-1.5 mt-1">
-												<span className="text-xs">For:</span>
-												{draft.platforms.map((p) => {
-													const Icon = PLATFORM_ICONS[p];
-													return (
-														<span
-															key={p}
-															className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-accent"
-														>
-															<Icon
-																className={`w-3 h-3 ${PLATFORM_COLORS[p]}`}
-															/>
-															{PLATFORM_LABELS[p]}
-														</span>
-													);
-												})}
+											<CardDescription className="text-xs mt-1">
+												{spec.description}
 											</CardDescription>
 										</CardHeader>
 										<CardContent className="space-y-3">
-											<Textarea
-												value={draft.content}
-												onChange={(e) =>
-													updateDraftContent(draft.group, e.target.value)
-												}
-												rows={draft.group === "long-professional" ? 10 : 5}
-												className="resize-none text-sm"
-											/>
+											{draft.segments && draft.segments.length > 1 ? (
+												<div className="space-y-2">
+													{draft.segments.map((segment, i) => {
+														const segOver = segment.length > draft.charLimit;
+														return (
+															<div
+																key={`${draft.platform}-seg-${i}`}
+																className="space-y-1"
+															>
+																<div className="flex items-center justify-between text-[11px]">
+																	<span className="text-muted-foreground font-mono">
+																		{i + 1}/{draft.segments?.length}
+																	</span>
+																	<span
+																		className={`font-mono ${
+																			segOver
+																				? "text-destructive"
+																				: "text-muted-foreground"
+																		}`}
+																	>
+																		{segment.length} / {draft.charLimit}
+																	</span>
+																</div>
+																<Textarea
+																	value={segment}
+																	onChange={(e) =>
+																		updateThreadSegment(
+																			draft.platform,
+																			i,
+																			e.target.value,
+																		)
+																	}
+																	rows={3}
+																	className="resize-none text-sm"
+																/>
+															</div>
+														);
+													})}
+												</div>
+											) : (
+												<Textarea
+													value={draft.content}
+													onChange={(e) =>
+														updateDraftContent(
+															draft.platform,
+															e.target.value,
+														)
+													}
+													rows={draft.platform === "linkedin" ? 10 : 5}
+													className="resize-none text-sm"
+												/>
+											)}
 
 											{draft.hashtags.length > 0 && (
 												<div className="flex flex-wrap gap-1">
@@ -502,7 +656,7 @@ export const Drafter = () => {
 													onClick={() =>
 														handleCopy(
 															copyKey,
-															withUrl(draft.content, preview.article.url),
+															buildDraftCopy(draft, preview.article.url),
 														)
 													}
 													variant="outline"
@@ -526,10 +680,10 @@ export const Drafter = () => {
 													onClick={() => handleRegenerate(draft)}
 													variant="outline"
 													size="sm"
-													disabled={regenerating[draft.group]}
+													disabled={regenerating[draft.platform]}
 													title="Regenerate just this draft"
 												>
-													{regenerating[draft.group] ? (
+													{regenerating[draft.platform] ? (
 														<Loader2 className="w-4 h-4 animate-spin" />
 													) : (
 														<RefreshCw className="w-4 h-4" />

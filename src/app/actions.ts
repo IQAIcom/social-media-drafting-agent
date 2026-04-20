@@ -3,12 +3,13 @@
 import { getDraftGenerator } from "@/agents/draft-generator/agent";
 import {
 	type ArticlePreview,
-	type GroupDraft,
-	groupsForPlatforms,
-	PLATFORM_GROUPS,
+	PLATFORM_SPECS,
 	type Platform,
-	type PlatformGroup,
+	type PlatformDraft,
+	type PostFormat,
 	type PreviewResult,
+	THREAD_LENGTH_MAX,
+	THREAD_LENGTH_MIN,
 	type Tone,
 } from "@/types";
 
@@ -20,17 +21,39 @@ async function ensureDraftRunner() {
 	return draftRunner;
 }
 
+// Only X and Threads can be threaded; LinkedIn is always a single post.
+const isThreadable = (platform: Platform): boolean =>
+	platform === "x" || platform === "threads";
+
+const clampThreadLength = (n: number): number =>
+	Math.min(THREAD_LENGTH_MAX, Math.max(THREAD_LENGTH_MIN, Math.round(n)));
+
 function buildDraft(
-	group: PlatformGroup,
-	selectedPlatforms: Platform[],
+	platform: Platform,
 	content: string,
 	hashtags: string[],
-): GroupDraft {
-	const spec = PLATFORM_GROUPS[group];
-	const selectedSet = new Set(selectedPlatforms);
+	segments: string[] | undefined,
+	format: PostFormat,
+): PlatformDraft {
+	const spec = PLATFORM_SPECS[platform];
+	const wantsThread = format === "thread" && isThreadable(platform);
+	const hasSegments = Array.isArray(segments) && segments.length > 1;
+
+	if (wantsThread && hasSegments && segments) {
+		const joined = segments.join("\n\n");
+		const maxLen = segments.reduce((m, s) => Math.max(m, s.length), 0);
+		return {
+			platform,
+			content: joined,
+			segments,
+			hashtags,
+			charLimit: spec.charLimit,
+			charCount: maxLen,
+		};
+	}
+
 	return {
-		group,
-		platforms: spec.platforms.filter((p) => selectedSet.has(p)),
+		platform,
 		content,
 		hashtags,
 		charLimit: spec.charLimit,
@@ -38,11 +61,26 @@ function buildDraft(
 	};
 }
 
-function buildGroupBrief(groups: PlatformGroup[]): string {
-	return groups
-		.map((g) => {
-			const spec = PLATFORM_GROUPS[g];
-			return `- ${g} (char limit ${spec.charLimit}) — shared by: ${spec.platforms.join(", ")}`;
+function formatLabel(
+	platform: Platform,
+	format: PostFormat,
+	threadLength: number,
+): string {
+	if (format === "thread" && isThreadable(platform)) {
+		return `thread of ${threadLength} posts (each <=${PLATFORM_SPECS[platform].charLimit} chars)`;
+	}
+	return `single post (<=${PLATFORM_SPECS[platform].charLimit} chars)`;
+}
+
+function buildPlatformBrief(
+	platforms: Platform[],
+	format: PostFormat,
+	threadLength: number,
+): string {
+	return platforms
+		.map((p) => {
+			const spec = PLATFORM_SPECS[p];
+			return `- ${p} — ${spec.label} — format: ${formatLabel(p, format, threadLength)}`;
 		})
 		.join("\n");
 }
@@ -50,82 +88,101 @@ function buildGroupBrief(groups: PlatformGroup[]): string {
 type AgentOutput = {
 	article: ArticlePreview;
 	drafts: Array<{
-		group: PlatformGroup;
+		platform: Platform;
 		content: string;
+		segments?: string[];
 		hashtags: string[];
 	}>;
 };
 
 /**
- * Generate drafts for every group that contains at least one of the
- * user's selected platforms. The agent fetches the article itself via
- * its built-in web_fetch tool.
+ * Generate one draft per selected platform. The agent fetches the article
+ * itself via its built-in web_fetch tool.
  */
 export async function previewPosts(params: {
 	url: string;
 	tone: Tone;
 	platforms: Platform[];
+	format: PostFormat;
+	threadLength: number;
 }): Promise<PreviewResult> {
-	const { url, tone, platforms } = params;
-	const groups = groupsForPlatforms(platforms);
-	if (groups.length === 0) {
+	const { url, tone, platforms, format } = params;
+	const threadLength = clampThreadLength(params.threadLength);
+	if (platforms.length === 0) {
 		throw new Error("Select at least one platform.");
 	}
 
 	const runner = await ensureDraftRunner();
 
-	const prompt = `Generate one social media draft per requested group for this article.
+	const prompt = `Generate one social media draft per requested platform for this article.
 
 URL to fetch with web_fetch: ${url}
 
 Tone: ${tone}
 
-Requested groups and their HARD character limits:
-${buildGroupBrief(groups)}
+Requested platforms and formats:
+${buildPlatformBrief(platforms, format, threadLength)}
 
-Return exactly ${groups.length} draft${groups.length === 1 ? "" : "s"} — one per group listed above. Do NOT exceed any group's char limit.`;
+Return exactly ${platforms.length} draft${platforms.length === 1 ? "" : "s"} — one per platform listed above. Do NOT exceed any platform's per-post char limit. For platforms in "thread" format, return a \`segments\` array with EXACTLY ${threadLength} posts.`;
 
 	const result = (await runner.ask(prompt)) as AgentOutput;
 
-	const drafts: GroupDraft[] = result.drafts
-		.filter((d) => groups.includes(d.group))
-		.map((d) => buildDraft(d.group, platforms, d.content, d.hashtags));
+	const selected = new Set(platforms);
+	const drafts: PlatformDraft[] = result.drafts
+		.filter((d) => selected.has(d.platform))
+		.map((d) =>
+			buildDraft(d.platform, d.content, d.hashtags, d.segments, format),
+		);
 
 	return { article: result.article, drafts };
 }
 
 /**
- * Regenerate a single group's draft. The agent re-fetches the article —
+ * Regenerate a single platform's draft. The agent re-fetches the article —
  * fast enough for a demo, no cache needed.
  */
 export async function regenerateDraft(params: {
 	url: string;
-	group: PlatformGroup;
-	platforms: Platform[];
+	platform: Platform;
 	tone: Tone;
-}): Promise<GroupDraft> {
-	const { url, group, platforms, tone } = params;
+	format: PostFormat;
+	threadLength: number;
+}): Promise<PlatformDraft> {
+	const { url, platform, tone, format } = params;
+	const threadLength = clampThreadLength(params.threadLength);
 
 	const runner = await ensureDraftRunner();
-	const spec = PLATFORM_GROUPS[group];
+	const spec = PLATFORM_SPECS[platform];
 
-	const prompt = `Use web_fetch to read this article, then generate exactly one draft for the "${group}" group.
+	const wantsThread = format === "thread" && isThreadable(platform);
+
+	const prompt = `Use web_fetch to read this article, then generate exactly one draft for "${platform}".
 
 URL: ${url}
 
 Tone: ${tone}
 
-Group and HARD character limit:
-- ${group} (char limit ${spec.charLimit}) — shared by: ${spec.platforms.join(", ")}
+Platform and format:
+- ${platform} — ${spec.label} — format: ${formatLabel(platform, format, threadLength)}
 
-Return JSON with the article block AND exactly one draft for the "${group}" group. Try a fresh angle or hook so this feels different from a typical first attempt. Do NOT exceed the char limit.`;
+Return JSON with the article block AND exactly one draft for "${platform}". Try a fresh angle or hook so this feels different from a typical first attempt. Do NOT exceed the per-post char limit. ${
+		wantsThread
+			? `Return a \`segments\` array with EXACTLY ${threadLength} posts.`
+			: ""
+	}`;
 
 	const result = (await runner.ask(prompt)) as AgentOutput;
 
-	const match = result.drafts.find((d) => d.group === group);
+	const match = result.drafts.find((d) => d.platform === platform);
 	if (!match) {
-		throw new Error(`Agent did not return a draft for group: ${group}`);
+		throw new Error(`Agent did not return a draft for platform: ${platform}`);
 	}
 
-	return buildDraft(match.group, platforms, match.content, match.hashtags);
+	return buildDraft(
+		match.platform,
+		match.content,
+		match.hashtags,
+		match.segments,
+		format,
+	);
 }
