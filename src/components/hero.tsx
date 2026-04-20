@@ -5,8 +5,7 @@ export const Hero = () => {
 				An ADK-TS demo
 			</div>
 			<h1 className="font-display text-4xl sm:text-5xl leading-[1.05] tracking-tight">
-				Blog posts,{" "}
-				<span className="italic text-accent">short dispatches.</span>
+				The <span className="italic text-accent">Draft Desk.</span>
 			</h1>
 			<p className="mt-3 text-ink-muted max-w-prose">
 				Paste a URL. Get LinkedIn, X, and Threads drafts — edit, copy, post.

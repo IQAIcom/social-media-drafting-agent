@@ -97,7 +97,10 @@ const buildDraftCopy = (draft: PlatformDraft, url: string): string => {
 	if (draft.segments && draft.segments.length > 1) {
 		const n = draft.segments.length;
 		return draft.segments
-			.map((s, i) => `(${i + 1}/${n})\n${s}`)
+			.map((s, i) => {
+				const body = i === n - 1 ? withUrl(s, url) : s;
+				return `(${i + 1}/${n})\n${body}`;
+			})
 			.join("\n\n---\n\n");
 	}
 	return withUrl(draft.content, url);
@@ -499,7 +502,7 @@ export const Drafter = () => {
 									)}
 								</button>
 								<button type="button" onClick={clearAll} className={LINK_BTN}>
-									New story
+									New article
 								</button>
 							</div>
 						</div>
@@ -655,7 +658,7 @@ export const Drafter = () => {
 				<div className={`${LABEL} mb-4`}>Archive</div>
 				{history.length === 0 ? (
 					<p className="italic text-ink-muted text-sm leading-relaxed">
-						Your recent stories will appear here.
+						Your recent articles will appear here.
 					</p>
 				) : (
 					<ul className="space-y-4">

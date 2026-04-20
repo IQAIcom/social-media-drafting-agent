@@ -16,9 +16,6 @@ export const Navbar = () => {
 					<span className="font-display text-xl leading-none tracking-tight">
 						The Draft Desk
 					</span>
-					<span className="hidden sm:inline text-[10px] uppercase tracking-[0.22em] text-ink-muted">
-						— Vol. I
-					</span>
 				</Link>
 				<Link
 					href="https://adk.iqai.com/docs/framework/get-started"
