@@ -1,33 +1,34 @@
-import { Zap } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { buttonVariants } from "@/components/ui/button";
 
 export const Navbar = () => {
 	return (
-		<nav className="flex items-center justify-between px-6 sm:px-10 py-4 border-b border-border/50 bg-background/80 backdrop-blur-md sticky top-0 z-50">
-			<div className="flex items-center gap-2 font-semibold text-lg">
-				<Image
-					src="/dark-adk.png"
-					alt="ADK-TS"
-					width={30}
-					height={30}
-					className="rounded-lg"
-				/>
-				<span>ADK-TS</span>
+		<nav className="border-b border-rule bg-paper/80 backdrop-blur-sm sticky top-0 z-50">
+			<div className="mx-auto max-w-4xl px-6 sm:px-10 py-5 flex items-center justify-between">
+				<Link href="/" className="flex items-baseline gap-3 group">
+					<Image
+						src="/dark-adk.png"
+						alt="ADK-TS"
+						width={22}
+						height={22}
+						className="self-center"
+					/>
+					<span className="font-display text-xl leading-none tracking-tight">
+						The Draft Desk
+					</span>
+					<span className="hidden sm:inline text-[10px] uppercase tracking-[0.22em] text-ink-muted">
+						— Vol. I
+					</span>
+				</Link>
+				<Link
+					href="https://adk.iqai.com/docs/framework/get-started"
+					target="_blank"
+					rel="noopener noreferrer"
+					className="text-[11px] uppercase tracking-[0.22em] text-ink hover:text-accent underline underline-offset-4 decoration-rule-strong hover:decoration-accent transition-colors"
+				>
+					Get started →
+				</Link>
 			</div>
-			<Link
-				href="https://adk.iqai.com/docs/framework/get-started"
-				target="_blank"
-				rel="noopener noreferrer"
-				className={buttonVariants({
-					size: "sm",
-					className: "hidden sm:flex items-center gap-2",
-				})}
-			>
-				<Zap className="w-4 h-4" />
-				Get Started
-			</Link>
 		</nav>
 	);
 };

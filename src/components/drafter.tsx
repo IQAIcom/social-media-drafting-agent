@@ -5,26 +5,14 @@ import {
 	ClipboardCheck,
 	ClipboardCopy,
 	Clock,
-	History,
 	Linkedin,
 	Loader2,
 	MessageCircle,
 	RefreshCw,
-	Sparkles,
 	Trash2,
 	Twitter,
-	Wand2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 import {
 	ALL_PLATFORMS,
 	PLATFORM_LABELS,
@@ -57,12 +45,6 @@ const PLATFORM_ICONS: Record<Platform, typeof Linkedin> = {
 	linkedin: Linkedin,
 	x: Twitter,
 	threads: MessageCircle,
-};
-
-const PLATFORM_COLORS: Record<Platform, string> = {
-	linkedin: "text-blue-600 dark:text-blue-400",
-	x: "text-foreground",
-	threads: "text-foreground",
 };
 
 // ───────────────────────────────────────────────────────────────────
@@ -138,6 +120,24 @@ const timeAgo = (ts: number) => {
 	if (hrs < 24) return `${hrs}h ago`;
 	return `${Math.round(hrs / 24)}d ago`;
 };
+
+// ───────────────────────────────────────────────────────────────────
+// Shared class fragments (editorial)
+// ───────────────────────────────────────────────────────────────────
+
+const LABEL =
+	"text-[10px] uppercase tracking-[0.22em] text-ink-muted font-medium";
+const HAIRLINE = "border-t border-rule";
+const CHIP_BASE =
+	"inline-flex items-center gap-2 px-3 py-1.5 text-[12px] border transition-colors";
+const CHIP_ON = "border-ink bg-ink text-paper";
+const CHIP_OFF = "border-rule-strong bg-transparent text-ink hover:bg-paper-2";
+const TEXTAREA =
+	"w-full bg-transparent px-0 py-2 text-[15px] leading-relaxed text-ink placeholder:text-ink-soft focus:outline-none resize-none";
+const INPUT =
+	"w-full bg-transparent border-0 border-b border-ink px-0 py-2 text-base font-display focus:outline-none focus:border-accent placeholder:text-ink-soft";
+const LINK_BTN =
+	"inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] text-ink hover:text-accent underline underline-offset-4 decoration-rule-strong hover:decoration-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
 
 // ───────────────────────────────────────────────────────────────────
 // Component
@@ -318,432 +318,379 @@ export const Drafter = () => {
 		resetResults();
 	};
 
+	const hasThreadable = platforms.some((p) => THREADABLE_PLATFORMS.includes(p));
+
 	return (
-		<div className="grid gap-6 lg:grid-cols-[1fr_280px]">
-			<div className="space-y-6 min-w-0">
-				{/* Step 1: Input form */}
-				<Card>
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2 text-lg">
-							<Wand2 className="w-5 h-5 text-primary" />
-							Generate social media drafts
-						</CardTitle>
-						<CardDescription>
-							Paste a blog URL. Review and edit the drafts, then copy and post
-							them manually.
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<form onSubmit={handleGenerate} className="space-y-4">
-							<div>
-								<label htmlFor="url" className="text-sm font-medium mb-2 block">
-									Blog post URL
-								</label>
-								<input
-									id="url"
-									type="url"
-									required
-									value={url}
-									onChange={(e) => setUrl(e.target.value)}
-									placeholder="https://your-blog.com/post-slug"
-									className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm focus:ring-2 focus:ring-primary focus:outline-none"
+		<div className="lg:grid lg:grid-cols-[minmax(0,1fr)_200px] lg:gap-14">
+			<div className="space-y-12 min-w-0">
+			{/* Form */}
+			<form onSubmit={handleGenerate} className="space-y-5">
+				<div className="flex items-end gap-3">
+					<div className="flex-1 min-w-0">
+						<label htmlFor="url" className={`${LABEL} block mb-2`}>
+							Blog URL
+						</label>
+						<input
+							id="url"
+							type="url"
+							required
+							value={url}
+							onChange={(e) => setUrl(e.target.value)}
+							placeholder="https://your-blog.com/post-slug"
+							className={INPUT}
+							disabled={isGenerating}
+						/>
+					</div>
+					<button
+						type="submit"
+						disabled={isGenerating || !url.trim() || platforms.length === 0}
+						className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 bg-ink text-paper font-display tracking-tight hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+					>
+						{isGenerating ? (
+							<>
+								<Loader2 className="w-4 h-4 animate-spin" />
+								<span className="italic">Reading…</span>
+							</>
+						) : (
+							<>
+								<span>Draft</span>
+								<span aria-hidden="true">→</span>
+							</>
+						)}
+					</button>
+				</div>
+
+				<div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+					<div className="flex items-center gap-2 flex-wrap">
+						<span className={LABEL}>Voice</span>
+						{TONES.map((t) => {
+							const on = tone === t.value;
+							return (
+								<button
+									key={t.value}
+									type="button"
+									onClick={() => setTone(t.value)}
 									disabled={isGenerating}
-								/>
-							</div>
+									title={t.description}
+									className={`${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
+								>
+									<span className="font-display italic">{t.label}</span>
+								</button>
+							);
+						})}
+					</div>
 
-							<div>
-								<div className="text-sm font-medium mb-2">Tone</div>
-								<div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-									{TONES.map((t) => (
-										<button
-											key={t.value}
-											type="button"
-											onClick={() => setTone(t.value)}
-											disabled={isGenerating}
-											className={`px-2 py-2 rounded-md border text-left text-xs transition-all ${
-												tone === t.value
-													? "border-primary bg-primary/10 ring-2 ring-primary"
-													: "border-border bg-background hover:bg-accent"
-											}`}
-										>
-											<div className="font-medium">{t.label}</div>
-											<div className="text-muted-foreground text-[11px] leading-tight">
-												{t.description}
-											</div>
-										</button>
-									))}
-								</div>
-							</div>
+					<div className="flex items-center gap-2 flex-wrap">
+						<span className={LABEL}>For</span>
+						{ALL_PLATFORMS.map((p) => {
+							const Icon = PLATFORM_ICONS[p];
+							const on = platforms.includes(p);
+							return (
+								<button
+									key={p}
+									type="button"
+									onClick={() => togglePlatform(p)}
+									disabled={isGenerating}
+									className={`${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
+								>
+									<Icon className="w-3.5 h-3.5" />
+									<span>{PLATFORM_LABELS[p]}</span>
+								</button>
+							);
+						})}
+					</div>
 
-							<div>
-								<div className="text-sm font-medium mb-2">Platforms</div>
-								<div className="flex gap-2 flex-wrap">
-									{ALL_PLATFORMS.map((p) => {
-										const Icon = PLATFORM_ICONS[p];
-										const active = platforms.includes(p);
-										return (
-											<button
-												key={p}
-												type="button"
-												onClick={() => togglePlatform(p)}
-												disabled={isGenerating}
-												className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-all ${
-													active
-														? "border-primary bg-primary/10 ring-2 ring-primary"
-														: "border-border bg-background hover:bg-accent"
-												}`}
-											>
-												<Icon className={`w-4 h-4 ${PLATFORM_COLORS[p]}`} />
-												{PLATFORM_LABELS[p]}
-											</button>
-										);
-									})}
-								</div>
-
-								{platforms.some((p) => THREADABLE_PLATFORMS.includes(p)) && (
-									<div className="mt-3 space-y-2">
-										<div className="flex items-center gap-2 flex-wrap">
-											<span className="text-xs text-muted-foreground">
-												Format for{" "}
-												{platforms
-													.filter((p) => THREADABLE_PLATFORMS.includes(p))
-													.map((p) => PLATFORM_LABELS[p])
-													.join(" & ")}
-												:
-											</span>
-											{(["post", "thread"] as PostFormat[]).map((f) => (
-												<button
-													key={f}
-													type="button"
-													onClick={() => setFormat(f)}
-													disabled={isGenerating}
-													className={`px-3 py-1 rounded-md border text-xs transition-all ${
-														format === f
-															? "border-primary bg-primary/10 ring-2 ring-primary"
-															: "border-border bg-background hover:bg-accent"
-													}`}
-												>
-													{f === "post" ? "Single post" : "Thread"}
-												</button>
-											))}
-										</div>
-
-										{format === "thread" && (
-											<div className="flex items-center gap-2 flex-wrap">
-												<span className="text-xs text-muted-foreground">
-													Thread length:
-												</span>
-												<div className="inline-flex items-center gap-1">
-													<button
-														type="button"
-														onClick={() =>
-															setThreadLength((n) =>
-																Math.max(THREAD_LENGTH_MIN, n - 1),
-															)
-														}
-														disabled={
-															isGenerating || threadLength <= THREAD_LENGTH_MIN
-														}
-														className="w-7 h-7 rounded-md border border-border bg-background hover:bg-accent text-sm disabled:opacity-50"
-														aria-label="Decrease thread length"
-													>
-														−
-													</button>
-													<span className="min-w-[2ch] text-center text-xs font-mono tabular-nums">
-														{threadLength}
-													</span>
-													<button
-														type="button"
-														onClick={() =>
-															setThreadLength((n) =>
-																Math.min(THREAD_LENGTH_MAX, n + 1),
-															)
-														}
-														disabled={
-															isGenerating || threadLength >= THREAD_LENGTH_MAX
-														}
-														className="w-7 h-7 rounded-md border border-border bg-background hover:bg-accent text-sm disabled:opacity-50"
-														aria-label="Increase thread length"
-													>
-														+
-													</button>
-												</div>
-												<span className="text-[11px] text-muted-foreground">
-													posts ({THREAD_LENGTH_MIN}–{THREAD_LENGTH_MAX})
-												</span>
-											</div>
-										)}
-									</div>
-								)}
-							</div>
-
-							<Button
-								type="submit"
-								size="lg"
-								className="w-full"
-								disabled={isGenerating || !url.trim() || platforms.length === 0}
-							>
-								{isGenerating ? (
-									<>
-										<Loader2 className="w-4 h-4 animate-spin" />
-										Reading article & generating drafts...
-									</>
-								) : (
-									<>
-										<Sparkles className="w-4 h-4" />
-										Generate drafts
-									</>
-								)}
-							</Button>
-
-							{error && (
-								<div className="flex items-start gap-2 text-sm text-destructive p-3 rounded-md border border-destructive/30 bg-destructive/5">
-									<AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-									<span>{error}</span>
+					{hasThreadable && (
+						<div className="flex items-center gap-2 flex-wrap">
+							<span className={LABEL}>As</span>
+							{(["post", "thread"] as PostFormat[]).map((f) => {
+								const on = format === f;
+								return (
+									<button
+										key={f}
+										type="button"
+										onClick={() => setFormat(f)}
+										disabled={isGenerating}
+										className={`${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
+									>
+										<span className="font-display italic">
+											{f === "post" ? "Post" : "Thread"}
+										</span>
+									</button>
+								);
+							})}
+							{format === "thread" && (
+								<div className="inline-flex items-center border border-rule-strong">
+									<button
+										type="button"
+										onClick={() =>
+											setThreadLength((n) =>
+												Math.max(THREAD_LENGTH_MIN, n - 1),
+											)
+										}
+										disabled={
+											isGenerating || threadLength <= THREAD_LENGTH_MIN
+										}
+										className="w-7 h-7 hover:bg-paper-2 disabled:opacity-30 border-r border-rule-strong text-sm"
+										aria-label="Decrease thread length"
+									>
+										−
+									</button>
+									<span className="w-8 text-center font-display tabular-nums text-sm">
+										{threadLength}
+									</span>
+									<button
+										type="button"
+										onClick={() =>
+											setThreadLength((n) =>
+												Math.min(THREAD_LENGTH_MAX, n + 1),
+											)
+										}
+										disabled={
+											isGenerating || threadLength >= THREAD_LENGTH_MAX
+										}
+										className="w-7 h-7 hover:bg-paper-2 disabled:opacity-30 border-l border-rule-strong text-sm"
+										aria-label="Increase thread length"
+									>
+										+
+									</button>
 								</div>
 							)}
-						</form>
-					</CardContent>
-				</Card>
+						</div>
+					)}
+				</div>
 
-				{/* Step 2: Drafts */}
-				{preview && (
-					<>
-						<div className="flex items-start justify-between gap-3">
-							<div className="min-w-0">
-								<div className="text-xs text-muted-foreground mb-0.5">
-									Drafts for
-								</div>
-								<h3 className="font-semibold text-sm leading-snug truncate">
-									{preview.article.title || preview.article.url}
-								</h3>
-							</div>
-							<Button
-								variant="ghost"
-								size="sm"
+				{error && (
+					<div className="flex items-start gap-2 text-sm text-accent border-l-2 border-accent pl-3 py-1">
+						<AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+						<span className="italic">{error}</span>
+					</div>
+				)}
+			</form>
+
+			{/* Drafts */}
+			{preview && (
+				<section>
+					<div className="flex items-baseline justify-between gap-4 mb-1 flex-wrap border-t border-rule pt-6">
+						<p className="font-display text-lg italic leading-snug min-w-0 flex-1 truncate">
+							{preview.article.title || preview.article.url}
+						</p>
+						<div className="flex items-center gap-5 shrink-0">
+							<button
+								type="button"
 								onClick={() =>
 									handleCopy(
 										"all",
 										buildCopyAll(editableDrafts, preview.article.url),
 									)
 								}
+								className={LINK_BTN}
 							>
 								{copiedKey === "all" ? (
 									<>
-										<ClipboardCheck className="w-4 h-4" />
-										Copied all
+										<ClipboardCheck className="w-3.5 h-3.5" />
+										Copied
 									</>
 								) : (
 									<>
-										<ClipboardCopy className="w-4 h-4" />
-										Copy all drafts
+										<ClipboardCopy className="w-3.5 h-3.5" />
+										Copy all
 									</>
 								)}
-							</Button>
+							</button>
+							<button type="button" onClick={clearAll} className={LINK_BTN}>
+								New story
+							</button>
 						</div>
+					</div>
 
-						<div className="grid gap-4 md:grid-cols-2">
-							{editableDrafts.map((draft) => {
-								const spec = PLATFORM_SPECS[draft.platform];
-								const Icon = PLATFORM_ICONS[draft.platform];
-								const over = draft.charCount > draft.charLimit;
-								const copyKey = `draft-${draft.platform}`;
-								return (
-									<Card key={draft.platform} className="min-w-0">
-										<CardHeader>
-											<CardTitle className="flex items-center justify-between text-base gap-2">
-												<span className="flex items-center gap-2 min-w-0">
-													<Icon
-														className={`w-4 h-4 shrink-0 ${PLATFORM_COLORS[draft.platform]}`}
-													/>
-													<span className="truncate">{spec.label}</span>
-												</span>
-												<span
-													className={`text-xs font-mono shrink-0 ${
-														over ? "text-destructive" : "text-muted-foreground"
-													}`}
-												>
-													{draft.charCount} / {draft.charLimit}
-												</span>
-											</CardTitle>
-											<CardDescription className="text-xs mt-1">
-												{spec.description}
-											</CardDescription>
-										</CardHeader>
-										<CardContent className="space-y-3">
-											{draft.segments && draft.segments.length > 1 ? (
-												<div className="space-y-2">
-													{draft.segments.map((segment, i) => {
-														const segOver = segment.length > draft.charLimit;
-														return (
-															<div
-																key={`${draft.platform}-seg-${i}`}
-																className="space-y-1"
-															>
-																<div className="flex items-center justify-between text-[11px]">
-																	<span className="text-muted-foreground font-mono">
-																		{i + 1}/{draft.segments?.length}
-																	</span>
-																	<span
-																		className={`font-mono ${
-																			segOver
-																				? "text-destructive"
-																				: "text-muted-foreground"
-																		}`}
-																	>
-																		{segment.length} / {draft.charLimit}
-																	</span>
-																</div>
-																<Textarea
-																	value={segment}
-																	onChange={(e) =>
-																		updateThreadSegment(
-																			draft.platform,
-																			i,
-																			e.target.value,
-																		)
-																	}
-																	rows={3}
-																	className="resize-none text-sm"
-																/>
-															</div>
-														);
-													})}
-												</div>
-											) : (
-												<Textarea
-													value={draft.content}
-													onChange={(e) =>
-														updateDraftContent(draft.platform, e.target.value)
-													}
-													rows={draft.platform === "linkedin" ? 10 : 5}
-													className="resize-none text-sm"
-												/>
-											)}
+					<div className="space-y-0">
+						{editableDrafts.map((draft) => {
+							const spec = PLATFORM_SPECS[draft.platform];
+							const Icon = PLATFORM_ICONS[draft.platform];
+							const over = draft.charCount > draft.charLimit;
+							const copyKey = `draft-${draft.platform}`;
+							const isThread = draft.segments && draft.segments.length > 1;
+							return (
+								<article
+									key={draft.platform}
+									className="py-8 border-t border-rule"
+								>
+									<header className="mb-4 flex items-baseline justify-between gap-3 flex-wrap">
+										<div className="flex items-baseline gap-3">
+											<Icon className="w-4 h-4 self-center" />
+											<h3 className="font-display text-xl tracking-tight">
+												{spec.label}
+											</h3>
+											<span className="text-[11px] uppercase tracking-[0.22em] text-ink-muted italic">
+												{isThread
+													? `thread · ${draft.segments?.length} posts`
+													: "post"}
+											</span>
+										</div>
+										<span
+											className={`font-mono text-xs ${
+												over ? "text-accent" : "text-ink-muted"
+											}`}
+										>
+											{draft.charCount} / {draft.charLimit}
+										</span>
+									</header>
 
-											{draft.hashtags.length > 0 && (
-												<div className="flex flex-wrap gap-1">
-													{draft.hashtags.map((h) => (
+									{/* body */}
+									{isThread ? (
+										<ol className="space-y-5">
+											{draft.segments?.map((segment, i) => {
+												const segOver = segment.length > draft.charLimit;
+												return (
+													<li
+														key={`${draft.platform}-seg-${i}`}
+														className="pl-9 relative"
+													>
 														<span
-															key={h}
-															className="text-xs px-2 py-0.5 rounded-full bg-accent text-accent-foreground"
+															className="absolute left-0 top-0 font-display italic text-accent text-lg leading-none"
+															aria-hidden="true"
 														>
-															#{h.replace(/^#/, "")}
+															{i + 1}
 														</span>
-													))}
-												</div>
+														<div className="flex items-center justify-between mb-1">
+															<span className={LABEL}>
+																{i + 1} of {draft.segments?.length}
+															</span>
+															<span
+																className={`font-mono text-[11px] ${
+																	segOver ? "text-accent" : "text-ink-muted"
+																}`}
+															>
+																{segment.length} / {draft.charLimit}
+															</span>
+														</div>
+														<textarea
+															value={segment}
+															onChange={(e) =>
+																updateThreadSegment(
+																	draft.platform,
+																	i,
+																	e.target.value,
+																)
+															}
+															rows={3}
+															className={`${TEXTAREA} border-b border-rule focus:border-ink`}
+														/>
+													</li>
+												);
+											})}
+										</ol>
+									) : (
+										<textarea
+											value={draft.content}
+											onChange={(e) =>
+												updateDraftContent(draft.platform, e.target.value)
+											}
+											rows={draft.platform === "linkedin" ? 10 : 5}
+											className={`${TEXTAREA} border-b border-rule focus:border-ink`}
+										/>
+									)}
+
+									{draft.hashtags.length > 0 && (
+										<div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 italic text-ink-muted text-sm">
+											{draft.hashtags.map((h) => (
+												<span key={h}>#{h.replace(/^#/, "")}</span>
+											))}
+										</div>
+									)}
+
+									<div className="mt-5 flex items-center gap-6">
+										<button
+											type="button"
+											onClick={() =>
+												handleCopy(
+													copyKey,
+													buildDraftCopy(draft, preview.article.url),
+												)
+											}
+											className={LINK_BTN}
+										>
+											{copiedKey === copyKey ? (
+												<>
+													<ClipboardCheck className="w-3.5 h-3.5" />
+													Copied
+												</>
+											) : (
+												<>
+													<ClipboardCopy className="w-3.5 h-3.5" />
+													Copy
+												</>
 											)}
+										</button>
+										<button
+											type="button"
+											onClick={() => handleRegenerate(draft)}
+											disabled={regenerating[draft.platform]}
+											className={LINK_BTN}
+										>
+											{regenerating[draft.platform] ? (
+												<>
+													<Loader2 className="w-3.5 h-3.5 animate-spin" />
+													Rewriting…
+												</>
+											) : (
+												<>
+													<RefreshCw className="w-3.5 h-3.5" />
+													Rewrite
+												</>
+											)}
+										</button>
+									</div>
+								</article>
+							);
+						})}
+						<div className={HAIRLINE} />
+					</div>
+				</section>
+			)}
 
-											<div className="flex gap-2">
-												<Button
-													onClick={() =>
-														handleCopy(
-															copyKey,
-															buildDraftCopy(draft, preview.article.url),
-														)
-													}
-													variant="outline"
-													size="sm"
-													className="flex-1"
-												>
-													{copiedKey === copyKey ? (
-														<>
-															<ClipboardCheck className="w-4 h-4" />
-															Copied
-														</>
-													) : (
-														<>
-															<ClipboardCopy className="w-4 h-4" />
-															Copy
-														</>
-													)}
-												</Button>
-
-												<Button
-													onClick={() => handleRegenerate(draft)}
-													variant="outline"
-													size="sm"
-													disabled={regenerating[draft.platform]}
-													title="Regenerate just this draft"
-												>
-													{regenerating[draft.platform] ? (
-														<Loader2 className="w-4 h-4 animate-spin" />
-													) : (
-														<RefreshCw className="w-4 h-4" />
-													)}
-												</Button>
-											</div>
-										</CardContent>
-									</Card>
-								);
-							})}
-						</div>
-
-						<Button
-							onClick={clearAll}
-							variant="ghost"
-							size="sm"
-							className="w-full"
-						>
-							Start over with a new article
-						</Button>
-					</>
-				)}
 			</div>
 
-			{/* Sidebar: recent articles */}
-			<aside className="lg:sticky lg:top-20 self-start">
-				<Card>
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2 text-sm">
-							<History className="w-4 h-4" />
-							Recent articles
-						</CardTitle>
-						<CardDescription className="text-xs">
-							Stored locally in your browser.
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
-						{history.length === 0 ? (
-							<p className="text-xs text-muted-foreground">
-								Your recently processed articles will appear here.
-							</p>
-						) : (
-							<ul className="space-y-2">
-								{history.map((h) => (
-									<li
-										key={h.id}
-										className="group rounded-md border border-border p-2 hover:bg-accent/50 transition-colors"
-									>
-										<button
-											type="button"
-											onClick={() => loadFromHistory(h)}
-											className="w-full text-left"
-										>
-											<div className="text-xs font-medium line-clamp-2 mb-1">
-												{h.preview.article.title || h.url}
-											</div>
-											<div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-												<Clock className="w-3 h-3" />
-												{timeAgo(h.timestamp)}
-												<span>·</span>
-												<span>{h.preview.drafts.length} drafts</span>
-											</div>
-										</button>
-										<button
-											type="button"
-											onClick={() => removeFromHistory(h.id)}
-											className="mt-1 text-[10px] text-muted-foreground hover:text-destructive flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
-										>
-											<Trash2 className="w-3 h-3" />
-											Remove
-										</button>
-									</li>
-								))}
-							</ul>
-						)}
-					</CardContent>
-				</Card>
+			<aside className="mt-14 lg:mt-0 lg:sticky lg:top-24 lg:self-start border-t lg:border-t-0 lg:border-l border-rule lg:pl-6 pt-5 lg:pt-0">
+				<div className={`${LABEL} mb-4`}>Archive</div>
+				{history.length === 0 ? (
+					<p className="italic text-ink-muted text-sm leading-relaxed">
+						Your recent stories will appear here.
+					</p>
+				) : (
+					<ul className="space-y-4">
+						{history.map((h) => (
+							<li
+								key={h.id}
+								className="group/item border-t border-rule pt-3 flex items-start justify-between gap-2"
+							>
+								<button
+									type="button"
+									onClick={() => loadFromHistory(h)}
+									className="text-left flex-1 min-w-0"
+								>
+									<div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-ink-muted mb-1">
+										<Clock className="w-2.5 h-2.5" />
+										{timeAgo(h.timestamp)}
+									</div>
+									<p className="font-display italic text-sm leading-snug line-clamp-3 group-hover/item:text-accent transition-colors">
+										{h.preview.article.title || h.url}
+									</p>
+								</button>
+								<button
+									type="button"
+									onClick={() => removeFromHistory(h.id)}
+									className="opacity-0 group-hover/item:opacity-100 text-ink-muted hover:text-accent transition-opacity shrink-0 mt-1"
+									aria-label="Remove from archive"
+									title="Remove"
+								>
+									<Trash2 className="w-3 h-3" />
+								</button>
+							</li>
+						))}
+					</ul>
+				)}
 			</aside>
 		</div>
 	);

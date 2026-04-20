@@ -6,12 +6,10 @@ export default function Home() {
 	return (
 		<>
 			<Navbar />
-			<div className="min-h-screen bg-background flex flex-col">
-				<main className="container mx-auto px-4 sm:px-6 lg:px-8 pt-10 sm:pt-14 pb-20 max-w-6xl">
-					<Hero />
-					<Drafter />
-				</main>
-			</div>
+			<main className="mx-auto max-w-4xl px-6 sm:px-10 pb-24">
+				<Hero />
+				<Drafter />
+			</main>
 		</>
 	);
 }

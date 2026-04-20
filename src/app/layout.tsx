@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,8 +12,15 @@ const geistMono = Geist_Mono({
 	subsets: ["latin"],
 });
 
+const fraunces = Fraunces({
+	variable: "--font-fraunces",
+	subsets: ["latin"],
+	style: ["normal", "italic"],
+	display: "swap",
+});
+
 export const metadata: Metadata = {
-	title: "ADK-TS Next.js Starter",
+	title: "The Draft Desk — ADK-TS",
 	description:
 		"A starter template for building AI agents with ADK-TS and Next.js",
 };
@@ -26,7 +33,7 @@ export default function RootLayout({
 	return (
 		<html lang="en">
 			<body
-				className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+				className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} bg-paper text-ink`}
 			>
 				{children}
 			</body>
