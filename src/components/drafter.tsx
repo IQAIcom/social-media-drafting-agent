@@ -360,7 +360,7 @@ export const Drafter = () => {
 					</button>
 				</div>
 
-				<div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+				<div className="flex flex-col items-start gap-x-5 gap-y-3">
 					<div className="flex items-center gap-2 flex-wrap">
 						<span className={LABEL}>Voice</span>
 						{TONES.map((t) => {
