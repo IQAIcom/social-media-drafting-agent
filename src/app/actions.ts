@@ -23,6 +23,69 @@ async function ensureDraftRunner() {
 	return draftRunner;
 }
 
+type DraftRunner = Awaited<ReturnType<typeof getDraftGenerator>>;
+
+const TRANSIENT_PATTERNS =
+	/\b503\b|UNAVAILABLE|overload|high demand|RESOURCE_EXHAUSTED|\b429\b|ECONNRESET|ETIMEDOUT|fetch failed/i;
+
+/**
+ * `runner.ask()` throws when the model returns an upstream error (e.g.
+ * Gemini 503) because the raw error string fails schema validation.
+ * Retry a handful of times on transient errors with exponential backoff
+ * before surfacing the failure.
+ */
+async function askWithRetry(
+	runner: DraftRunner,
+	prompt: string,
+	maxRetries = 2,
+): Promise<unknown> {
+	let lastError: unknown;
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		try {
+			return await runner.ask(prompt);
+		} catch (err) {
+			lastError = err;
+			const msg = err instanceof Error ? err.message : String(err);
+			if (!TRANSIENT_PATTERNS.test(msg) || attempt === maxRetries) throw err;
+			await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+		}
+	}
+	throw lastError;
+}
+
+/**
+ * Map noisy agent/network errors to short user-facing messages.
+ * Logs the raw error for debugging — only the cleaned message is thrown.
+ */
+function toUserMessage(error: unknown): string {
+	console.error("[actions]", error);
+	const raw = error instanceof Error ? error.message : String(error);
+
+	if (/\b503\b|UNAVAILABLE|overload|high demand/i.test(raw)) {
+		return "The model is overloaded right now. Try again in a few seconds.";
+	}
+	if (/RESOURCE_EXHAUSTED|\b429\b|rate.?limit|quota/i.test(raw)) {
+		return "Rate-limited by the AI provider. Wait a moment and retry.";
+	}
+	if (
+		/ENOTFOUND|ETIMEDOUT|ECONNREFUSED|ECONNRESET|fetch failed|getaddrinfo/i.test(
+			raw,
+		)
+	) {
+		return "Couldn't reach the article URL. Check the link and try again.";
+	}
+	if (/\b404\b/i.test(raw)) {
+		return "Article not found at that URL.";
+	}
+	if (/paywall|login.?required/i.test(raw)) {
+		return "This article is behind a login or paywall — can't read it.";
+	}
+	if (/ZodError|invalid_type|Invalid input|parse.*schema/i.test(raw)) {
+		return "The model returned an unexpected response. Try again.";
+	}
+	return "Something went wrong generating drafts. Try again.";
+}
+
 // Only X and Threads can be threaded; LinkedIn is always a single post.
 const isThreadable = (platform: Platform): boolean =>
 	platform === "x" || platform === "threads";
@@ -115,9 +178,10 @@ export async function previewPosts(params: {
 		throw new Error("Select at least one platform.");
 	}
 
-	const runner = await ensureDraftRunner();
+	try {
+		const runner = await ensureDraftRunner();
 
-	const prompt = `Generate one social media draft per requested platform for this article.
+		const prompt = `Generate one social media draft per requested platform for this article.
 
 URL to fetch with web_fetch: ${url}
 
@@ -128,16 +192,19 @@ ${buildPlatformBrief(platforms, format, threadLength)}
 
 Return exactly ${platforms.length} draft${platforms.length === 1 ? "" : "s"} — one per platform listed above. Do NOT exceed any platform's per-post char limit. For platforms in "thread" format, return a \`segments\` array with EXACTLY ${threadLength} posts.`;
 
-	const result = (await runner.ask(prompt)) as AgentOutput;
+		const result = (await askWithRetry(runner, prompt)) as AgentOutput;
 
-	const selected = new Set(platforms);
-	const drafts: PlatformDraft[] = result.drafts
-		.filter((d) => selected.has(d.platform))
-		.map((d) =>
-			buildDraft(d.platform, d.content, d.hashtags, d.segments, format),
-		);
+		const selected = new Set(platforms);
+		const drafts: PlatformDraft[] = result.drafts
+			.filter((d) => selected.has(d.platform))
+			.map((d) =>
+				buildDraft(d.platform, d.content, d.hashtags, d.segments, format),
+			);
 
-	return { article: result.article, drafts };
+		return { article: result.article, drafts };
+	} catch (error) {
+		throw new Error(toUserMessage(error));
+	}
 }
 
 /**
@@ -154,12 +221,13 @@ export async function regenerateDraft(params: {
 	const { url, platform, tone, format } = params;
 	const threadLength = clampThreadLength(params.threadLength);
 
-	const runner = await ensureDraftRunner();
-	const spec = PLATFORM_SPECS[platform];
+	try {
+		const runner = await ensureDraftRunner();
+		const spec = PLATFORM_SPECS[platform];
 
-	const wantsThread = format === "thread" && isThreadable(platform);
+		const wantsThread = format === "thread" && isThreadable(platform);
 
-	const prompt = `Use web_fetch to read this article, then generate exactly one draft for "${platform}".
+		const prompt = `Use web_fetch to read this article, then generate exactly one draft for "${platform}".
 
 URL: ${url}
 
@@ -169,23 +237,26 @@ Platform and format:
 - ${platform} — ${spec.label} — format: ${formatLabel(platform, format, threadLength)}
 
 Return JSON with the article block AND exactly one draft for "${platform}". Try a fresh angle or hook so this feels different from a typical first attempt. Do NOT exceed the per-post char limit. ${
-		wantsThread
-			? `Return a \`segments\` array with EXACTLY ${threadLength} posts.`
-			: ""
-	}`;
+			wantsThread
+				? `Return a \`segments\` array with EXACTLY ${threadLength} posts.`
+				: ""
+		}`;
 
-	const result = (await runner.ask(prompt)) as AgentOutput;
+		const result = (await askWithRetry(runner, prompt)) as AgentOutput;
 
-	const match = result.drafts.find((d) => d.platform === platform);
-	if (!match) {
-		throw new Error(`Agent did not return a draft for platform: ${platform}`);
+		const match = result.drafts.find((d) => d.platform === platform);
+		if (!match) {
+			throw new Error(`Agent did not return a draft for platform: ${platform}`);
+		}
+
+		return buildDraft(
+			match.platform,
+			match.content,
+			match.hashtags,
+			match.segments,
+			format,
+		);
+	} catch (error) {
+		throw new Error(toUserMessage(error));
 	}
-
-	return buildDraft(
-		match.platform,
-		match.content,
-		match.hashtags,
-		match.segments,
-		format,
-	);
 }

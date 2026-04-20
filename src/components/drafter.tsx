@@ -323,333 +323,332 @@ export const Drafter = () => {
 	return (
 		<div className="lg:grid lg:grid-cols-[minmax(0,1fr)_200px] lg:gap-14">
 			<div className="space-y-12 min-w-0">
-			{/* Form */}
-			<form onSubmit={handleGenerate} className="space-y-5">
-				<div className="flex items-end gap-3">
-					<div className="flex-1 min-w-0">
-						<label htmlFor="url" className={`${LABEL} block mb-2`}>
-							Blog URL
-						</label>
-						<input
-							id="url"
-							type="url"
-							required
-							value={url}
-							onChange={(e) => setUrl(e.target.value)}
-							placeholder="https://your-blog.com/post-slug"
-							className={INPUT}
-							disabled={isGenerating}
-						/>
-					</div>
-					<button
-						type="submit"
-						disabled={isGenerating || !url.trim() || platforms.length === 0}
-						className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 bg-ink text-paper font-display tracking-tight hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-					>
-						{isGenerating ? (
-							<>
-								<Loader2 className="w-4 h-4 animate-spin" />
-								<span className="italic">Reading…</span>
-							</>
-						) : (
-							<>
-								<span>Draft</span>
-								<span aria-hidden="true">→</span>
-							</>
-						)}
-					</button>
-				</div>
-
-				<div className="flex flex-col items-start gap-x-5 gap-y-3">
-					<div className="flex items-center gap-2 flex-wrap">
-						<span className={LABEL}>Voice</span>
-						{TONES.map((t) => {
-							const on = tone === t.value;
-							return (
-								<button
-									key={t.value}
-									type="button"
-									onClick={() => setTone(t.value)}
-									disabled={isGenerating}
-									title={t.description}
-									className={`${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
-								>
-									<span className="font-display italic">{t.label}</span>
-								</button>
-							);
-						})}
+				{/* Form */}
+				<form onSubmit={handleGenerate} className="space-y-5">
+					<div className="flex items-end gap-3">
+						<div className="flex-1 min-w-0">
+							<label htmlFor="url" className={`${LABEL} block mb-2`}>
+								Blog URL
+							</label>
+							<input
+								id="url"
+								type="url"
+								required
+								value={url}
+								onChange={(e) => setUrl(e.target.value)}
+								placeholder="https://your-blog.com/post-slug"
+								className={INPUT}
+								disabled={isGenerating}
+							/>
+						</div>
+						<button
+							type="submit"
+							disabled={isGenerating || !url.trim() || platforms.length === 0}
+							className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 bg-ink text-paper font-display tracking-tight hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+						>
+							{isGenerating ? (
+								<>
+									<Loader2 className="w-4 h-4 animate-spin" />
+									<span className="italic">Reading…</span>
+								</>
+							) : (
+								<>
+									<span>Draft</span>
+									<span aria-hidden="true">→</span>
+								</>
+							)}
+						</button>
 					</div>
 
-					<div className="flex items-center gap-2 flex-wrap">
-						<span className={LABEL}>For</span>
-						{ALL_PLATFORMS.map((p) => {
-							const Icon = PLATFORM_ICONS[p];
-							const on = platforms.includes(p);
-							return (
-								<button
-									key={p}
-									type="button"
-									onClick={() => togglePlatform(p)}
-									disabled={isGenerating}
-									className={`${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
-								>
-									<Icon className="w-3.5 h-3.5" />
-									<span>{PLATFORM_LABELS[p]}</span>
-								</button>
-							);
-						})}
-					</div>
-
-					{hasThreadable && (
+					<div className="flex flex-col items-start gap-x-5 gap-y-3">
 						<div className="flex items-center gap-2 flex-wrap">
-							<span className={LABEL}>As</span>
-							{(["post", "thread"] as PostFormat[]).map((f) => {
-								const on = format === f;
+							<span className={LABEL}>Voice</span>
+							{TONES.map((t) => {
+								const on = tone === t.value;
 								return (
 									<button
-										key={f}
+										key={t.value}
 										type="button"
-										onClick={() => setFormat(f)}
+										onClick={() => setTone(t.value)}
 										disabled={isGenerating}
+										title={t.description}
 										className={`${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
 									>
-										<span className="font-display italic">
-											{f === "post" ? "Post" : "Thread"}
-										</span>
+										<span className="font-display italic">{t.label}</span>
 									</button>
 								);
 							})}
-							{format === "thread" && (
-								<div className="inline-flex items-center border border-rule-strong">
-									<button
-										type="button"
-										onClick={() =>
-											setThreadLength((n) =>
-												Math.max(THREAD_LENGTH_MIN, n - 1),
-											)
-										}
-										disabled={
-											isGenerating || threadLength <= THREAD_LENGTH_MIN
-										}
-										className="w-7 h-7 hover:bg-paper-2 disabled:opacity-30 border-r border-rule-strong text-sm"
-										aria-label="Decrease thread length"
-									>
-										−
-									</button>
-									<span className="w-8 text-center font-display tabular-nums text-sm">
-										{threadLength}
-									</span>
-									<button
-										type="button"
-										onClick={() =>
-											setThreadLength((n) =>
-												Math.min(THREAD_LENGTH_MAX, n + 1),
-											)
-										}
-										disabled={
-											isGenerating || threadLength >= THREAD_LENGTH_MAX
-										}
-										className="w-7 h-7 hover:bg-paper-2 disabled:opacity-30 border-l border-rule-strong text-sm"
-										aria-label="Increase thread length"
-									>
-										+
-									</button>
-								</div>
-							)}
 						</div>
-					)}
-				</div>
 
-				{error && (
-					<div className="flex items-start gap-2 text-sm text-accent border-l-2 border-accent pl-3 py-1">
-						<AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-						<span className="italic">{error}</span>
-					</div>
-				)}
-			</form>
-
-			{/* Drafts */}
-			{preview && (
-				<section>
-					<div className="flex items-baseline justify-between gap-4 mb-1 flex-wrap border-t border-rule pt-6">
-						<p className="font-display text-lg italic leading-snug min-w-0 flex-1 truncate">
-							{preview.article.title || preview.article.url}
-						</p>
-						<div className="flex items-center gap-5 shrink-0">
-							<button
-								type="button"
-								onClick={() =>
-									handleCopy(
-										"all",
-										buildCopyAll(editableDrafts, preview.article.url),
-									)
-								}
-								className={LINK_BTN}
-							>
-								{copiedKey === "all" ? (
-									<>
-										<ClipboardCheck className="w-3.5 h-3.5" />
-										Copied
-									</>
-								) : (
-									<>
-										<ClipboardCopy className="w-3.5 h-3.5" />
-										Copy all
-									</>
-								)}
-							</button>
-							<button type="button" onClick={clearAll} className={LINK_BTN}>
-								New story
-							</button>
+						<div className="flex items-center gap-2 flex-wrap">
+							<span className={LABEL}>For</span>
+							{ALL_PLATFORMS.map((p) => {
+								const Icon = PLATFORM_ICONS[p];
+								const on = platforms.includes(p);
+								return (
+									<button
+										key={p}
+										type="button"
+										onClick={() => togglePlatform(p)}
+										disabled={isGenerating}
+										className={`${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
+									>
+										<Icon className="w-3.5 h-3.5" />
+										<span>{PLATFORM_LABELS[p]}</span>
+									</button>
+								);
+							})}
 						</div>
-					</div>
 
-					<div className="space-y-0">
-						{editableDrafts.map((draft) => {
-							const spec = PLATFORM_SPECS[draft.platform];
-							const Icon = PLATFORM_ICONS[draft.platform];
-							const over = draft.charCount > draft.charLimit;
-							const copyKey = `draft-${draft.platform}`;
-							const isThread = draft.segments && draft.segments.length > 1;
-							return (
-								<article
-									key={draft.platform}
-									className="py-8 border-t border-rule"
-								>
-									<header className="mb-4 flex items-baseline justify-between gap-3 flex-wrap">
-										<div className="flex items-baseline gap-3">
-											<Icon className="w-4 h-4 self-center" />
-											<h3 className="font-display text-xl tracking-tight">
-												{spec.label}
-											</h3>
-											<span className="text-[11px] uppercase tracking-[0.22em] text-ink-muted italic">
-												{isThread
-													? `thread · ${draft.segments?.length} posts`
-													: "post"}
-											</span>
-										</div>
-										<span
-											className={`font-mono text-xs ${
-												over ? "text-accent" : "text-ink-muted"
-											}`}
+						{hasThreadable && (
+							<div className="flex items-center gap-2 flex-wrap">
+								<span className={LABEL}>As</span>
+								{(["post", "thread"] as PostFormat[]).map((f) => {
+									const on = format === f;
+									return (
+										<button
+											key={f}
+											type="button"
+											onClick={() => setFormat(f)}
+											disabled={isGenerating}
+											className={`${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
 										>
-											{draft.charCount} / {draft.charLimit}
-										</span>
-									</header>
-
-									{/* body */}
-									{isThread ? (
-										<ol className="space-y-5">
-											{draft.segments?.map((segment, i) => {
-												const segOver = segment.length > draft.charLimit;
-												return (
-													<li
-														key={`${draft.platform}-seg-${i}`}
-														className="pl-9 relative"
-													>
-														<span
-															className="absolute left-0 top-0 font-display italic text-accent text-lg leading-none"
-															aria-hidden="true"
-														>
-															{i + 1}
-														</span>
-														<div className="flex items-center justify-between mb-1">
-															<span className={LABEL}>
-																{i + 1} of {draft.segments?.length}
-															</span>
-															<span
-																className={`font-mono text-[11px] ${
-																	segOver ? "text-accent" : "text-ink-muted"
-																}`}
-															>
-																{segment.length} / {draft.charLimit}
-															</span>
-														</div>
-														<textarea
-															value={segment}
-															onChange={(e) =>
-																updateThreadSegment(
-																	draft.platform,
-																	i,
-																	e.target.value,
-																)
-															}
-															rows={3}
-															className={`${TEXTAREA} border-b border-rule focus:border-ink`}
-														/>
-													</li>
-												);
-											})}
-										</ol>
-									) : (
-										<textarea
-											value={draft.content}
-											onChange={(e) =>
-												updateDraftContent(draft.platform, e.target.value)
-											}
-											rows={draft.platform === "linkedin" ? 10 : 5}
-											className={`${TEXTAREA} border-b border-rule focus:border-ink`}
-										/>
-									)}
-
-									{draft.hashtags.length > 0 && (
-										<div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 italic text-ink-muted text-sm">
-											{draft.hashtags.map((h) => (
-												<span key={h}>#{h.replace(/^#/, "")}</span>
-											))}
-										</div>
-									)}
-
-									<div className="mt-5 flex items-center gap-6">
+											<span className="font-display italic">
+												{f === "post" ? "Post" : "Thread"}
+											</span>
+										</button>
+									);
+								})}
+								{format === "thread" && (
+									<div className="inline-flex items-center border border-rule-strong">
 										<button
 											type="button"
 											onClick={() =>
-												handleCopy(
-													copyKey,
-													buildDraftCopy(draft, preview.article.url),
+												setThreadLength((n) =>
+													Math.max(THREAD_LENGTH_MIN, n - 1),
 												)
 											}
-											className={LINK_BTN}
+											disabled={
+												isGenerating || threadLength <= THREAD_LENGTH_MIN
+											}
+											className="w-7 h-7 hover:bg-paper-2 disabled:opacity-30 border-r border-rule-strong text-sm"
+											aria-label="Decrease thread length"
 										>
-											{copiedKey === copyKey ? (
-												<>
-													<ClipboardCheck className="w-3.5 h-3.5" />
-													Copied
-												</>
-											) : (
-												<>
-													<ClipboardCopy className="w-3.5 h-3.5" />
-													Copy
-												</>
-											)}
+											−
 										</button>
+										<span className="w-8 text-center font-display tabular-nums text-sm">
+											{threadLength}
+										</span>
 										<button
 											type="button"
-											onClick={() => handleRegenerate(draft)}
-											disabled={regenerating[draft.platform]}
-											className={LINK_BTN}
+											onClick={() =>
+												setThreadLength((n) =>
+													Math.min(THREAD_LENGTH_MAX, n + 1),
+												)
+											}
+											disabled={
+												isGenerating || threadLength >= THREAD_LENGTH_MAX
+											}
+											className="w-7 h-7 hover:bg-paper-2 disabled:opacity-30 border-l border-rule-strong text-sm"
+											aria-label="Increase thread length"
 										>
-											{regenerating[draft.platform] ? (
-												<>
-													<Loader2 className="w-3.5 h-3.5 animate-spin" />
-													Rewriting…
-												</>
-											) : (
-												<>
-													<RefreshCw className="w-3.5 h-3.5" />
-													Rewrite
-												</>
-											)}
+											+
 										</button>
 									</div>
-								</article>
-							);
-						})}
-						<div className={HAIRLINE} />
+								)}
+							</div>
+						)}
 					</div>
-				</section>
-			)}
 
+					{error && (
+						<div className="flex items-start gap-2 text-sm text-accent border-l-2 border-accent pl-3 py-1">
+							<AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+							<span className="italic">{error}</span>
+						</div>
+					)}
+				</form>
+
+				{/* Drafts */}
+				{preview && (
+					<section>
+						<div className="flex items-baseline justify-between gap-4 mb-1 flex-wrap border-t border-rule pt-6">
+							<p className="font-display text-lg italic leading-snug min-w-0 flex-1 truncate">
+								{preview.article.title || preview.article.url}
+							</p>
+							<div className="flex items-center gap-5 shrink-0">
+								<button
+									type="button"
+									onClick={() =>
+										handleCopy(
+											"all",
+											buildCopyAll(editableDrafts, preview.article.url),
+										)
+									}
+									className={LINK_BTN}
+								>
+									{copiedKey === "all" ? (
+										<>
+											<ClipboardCheck className="w-3.5 h-3.5" />
+											Copied
+										</>
+									) : (
+										<>
+											<ClipboardCopy className="w-3.5 h-3.5" />
+											Copy all
+										</>
+									)}
+								</button>
+								<button type="button" onClick={clearAll} className={LINK_BTN}>
+									New story
+								</button>
+							</div>
+						</div>
+
+						<div className="space-y-0">
+							{editableDrafts.map((draft) => {
+								const spec = PLATFORM_SPECS[draft.platform];
+								const Icon = PLATFORM_ICONS[draft.platform];
+								const over = draft.charCount > draft.charLimit;
+								const copyKey = `draft-${draft.platform}`;
+								const isThread = draft.segments && draft.segments.length > 1;
+								return (
+									<article
+										key={draft.platform}
+										className="py-8 border-t border-rule"
+									>
+										<header className="mb-4 flex items-baseline justify-between gap-3 flex-wrap">
+											<div className="flex items-baseline gap-3">
+												<Icon className="w-4 h-4 self-center" />
+												<h3 className="font-display text-xl tracking-tight">
+													{spec.label}
+												</h3>
+												<span className="text-[11px] uppercase tracking-[0.22em] text-ink-muted italic">
+													{isThread
+														? `thread · ${draft.segments?.length} posts`
+														: "post"}
+												</span>
+											</div>
+											<span
+												className={`font-mono text-xs ${
+													over ? "text-accent" : "text-ink-muted"
+												}`}
+											>
+												{draft.charCount} / {draft.charLimit}
+											</span>
+										</header>
+
+										{/* body */}
+										{isThread ? (
+											<ol className="space-y-5">
+												{draft.segments?.map((segment, i) => {
+													const segOver = segment.length > draft.charLimit;
+													return (
+														<li
+															key={`${draft.platform}-seg-${i}`}
+															className="pl-9 relative"
+														>
+															<span
+																className="absolute left-0 top-0 font-display italic text-accent text-lg leading-none"
+																aria-hidden="true"
+															>
+																{i + 1}
+															</span>
+															<div className="flex items-center justify-between mb-1">
+																<span className={LABEL}>
+																	{i + 1} of {draft.segments?.length}
+																</span>
+																<span
+																	className={`font-mono text-[11px] ${
+																		segOver ? "text-accent" : "text-ink-muted"
+																	}`}
+																>
+																	{segment.length} / {draft.charLimit}
+																</span>
+															</div>
+															<textarea
+																value={segment}
+																onChange={(e) =>
+																	updateThreadSegment(
+																		draft.platform,
+																		i,
+																		e.target.value,
+																	)
+																}
+																rows={3}
+																className={`${TEXTAREA} border-b border-rule focus:border-ink`}
+															/>
+														</li>
+													);
+												})}
+											</ol>
+										) : (
+											<textarea
+												value={draft.content}
+												onChange={(e) =>
+													updateDraftContent(draft.platform, e.target.value)
+												}
+												rows={draft.platform === "linkedin" ? 10 : 5}
+												className={`${TEXTAREA} border-b border-rule focus:border-ink`}
+											/>
+										)}
+
+										{draft.hashtags.length > 0 && (
+											<div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 italic text-ink-muted text-sm">
+												{draft.hashtags.map((h) => (
+													<span key={h}>#{h.replace(/^#/, "")}</span>
+												))}
+											</div>
+										)}
+
+										<div className="mt-5 flex items-center gap-6">
+											<button
+												type="button"
+												onClick={() =>
+													handleCopy(
+														copyKey,
+														buildDraftCopy(draft, preview.article.url),
+													)
+												}
+												className={LINK_BTN}
+											>
+												{copiedKey === copyKey ? (
+													<>
+														<ClipboardCheck className="w-3.5 h-3.5" />
+														Copied
+													</>
+												) : (
+													<>
+														<ClipboardCopy className="w-3.5 h-3.5" />
+														Copy
+													</>
+												)}
+											</button>
+											<button
+												type="button"
+												onClick={() => handleRegenerate(draft)}
+												disabled={regenerating[draft.platform]}
+												className={LINK_BTN}
+											>
+												{regenerating[draft.platform] ? (
+													<>
+														<Loader2 className="w-3.5 h-3.5 animate-spin" />
+														Rewriting…
+													</>
+												) : (
+													<>
+														<RefreshCw className="w-3.5 h-3.5" />
+														Rewrite
+													</>
+												)}
+											</button>
+										</div>
+									</article>
+								);
+							})}
+							<div className={HAIRLINE} />
+						</div>
+					</section>
+				)}
 			</div>
 
 			<aside className="mt-14 lg:mt-0 lg:sticky lg:top-24 lg:self-start border-t lg:border-t-0 lg:border-l border-rule lg:pl-6 pt-5 lg:pt-0">

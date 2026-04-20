@@ -1,7 +1,7 @@
 import {
-  AgentBuilder,
-  ReflectAndRetryToolPlugin,
-  WebFetchTool,
+	AgentBuilder,
+	ReflectAndRetryToolPlugin,
+	WebFetchTool,
 } from "@iqai/adk";
 import z from "zod";
 import { env } from "../../../env";
@@ -20,9 +20,9 @@ const webFetchCachePlugin = new WebFetchCachePlugin(60 * 60 * 1000);
  * latency at ~3 fetch attempts before we surface the error.
  */
 const reflectRetryPlugin = new ReflectAndRetryToolPlugin({
-  name: "web_fetch_retry",
-  maxRetries: 2,
-  throwExceptionIfRetryExceeded: true,
+	name: "web_fetch_retry",
+	maxRetries: 2,
+	throwExceptionIfRetryExceeded: true,
 });
 
 /**
@@ -30,18 +30,18 @@ const reflectRetryPlugin = new ReflectAndRetryToolPlugin({
  * For X or Threads in thread mode, `segments` carries the chained posts.
  */
 export const postDraftsSchema = z.object({
-  article: z.object({
-    url: z.string(),
-    title: z.string(),
-  }),
-  drafts: z.array(
-    z.object({
-      platform: z.enum(["linkedin", "x", "threads"]),
-      content: z.string(),
-      segments: z.array(z.string()).optional(),
-      hashtags: z.array(z.string()),
-    }),
-  ),
+	article: z.object({
+		url: z.string(),
+		title: z.string(),
+	}),
+	drafts: z.array(
+		z.object({
+			platform: z.enum(["linkedin", "x", "threads"]),
+			content: z.string(),
+			segments: z.array(z.string()).optional(),
+			hashtags: z.array(z.string()),
+		}),
+	),
 });
 
 export type PostDraftsOutput = z.infer<typeof postDraftsSchema>;
@@ -57,12 +57,12 @@ export type PostDraftsOutput = z.infer<typeof postDraftsSchema>;
  *   fetch failures.
  */
 export const getDraftGenerator = async () => {
-  const { runner } = await AgentBuilder.create("draft_generator")
-    .withDescription(
-      "Fetches a blog post and generates platform-optimized social media drafts. Returns structured JSON.",
-    )
-    .withInstruction(
-      `You are a social media content specialist. Given a blog post URL, a tone, and a list of target platforms with their hard character limits and formats:
+	const { runner } = await AgentBuilder.create("draft_generator")
+		.withDescription(
+			"Fetches a blog post and generates platform-optimized social media drafts. Returns structured JSON.",
+		)
+		.withInstruction(
+			`You are a social media content specialist. Given a blog post URL, a tone, and a list of target platforms with their hard character limits and formats:
 
 1. Use the web_fetch tool to read the article. Record its title.
 2. For EACH requested platform, generate exactly ONE draft tailored to that platform.
@@ -85,12 +85,12 @@ export const getDraftGenerator = async () => {
    - **professional / casual / educational / punchy**: Apply uniformly.
 
 7. Return ONLY valid JSON matching the output schema. No markdown fences. The \`article\` block must include the URL and the fetched title. Each draft must include \`content\`; threads in thread format must ALSO include \`segments\`. Do NOT include \`segments\` for single-post formats or for LinkedIn.`,
-    )
-    .withModel(env.LLM_MODEL)
-    .withTools(new WebFetchTool())
-    .withPlugins(webFetchCachePlugin, reflectRetryPlugin)
-    .withOutputSchema(postDraftsSchema)
-    .build();
+		)
+		.withModel(env.LLM_MODEL)
+		.withTools(new WebFetchTool())
+		.withPlugins(webFetchCachePlugin, reflectRetryPlugin)
+		.withOutputSchema(postDraftsSchema)
+		.build();
 
-  return runner;
+	return runner;
 };
