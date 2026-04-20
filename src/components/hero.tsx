@@ -18,8 +18,7 @@ export const Hero = () => {
 
 			<p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto">
 				Paste a blog URL. The agent reads the article and drafts posts for
-				LinkedIn, X, Bluesky, Threads, and Mastodon — ready to copy and
-				share.
+				LinkedIn, X, Bluesky, Threads, and Mastodon — ready to copy and share.
 			</p>
 		</div>
 	);

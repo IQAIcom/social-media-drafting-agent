@@ -259,10 +259,7 @@ export const Drafter = () => {
 				if (d.platform !== platform || !d.segments) return d;
 				const segments = d.segments.map((s, i) => (i === index ? value : s));
 				const content = segments.join("\n\n");
-				const charCount = segments.reduce(
-					(m, s) => Math.max(m, s.length),
-					0,
-				);
+				const charCount = segments.reduce((m, s) => Math.max(m, s.length), 0);
 				return { ...d, segments, content, charCount };
 			}),
 		);
@@ -332,17 +329,14 @@ export const Drafter = () => {
 							Generate social media drafts
 						</CardTitle>
 						<CardDescription>
-							Paste a blog URL. Review and edit the drafts, then copy and
-							post them manually.
+							Paste a blog URL. Review and edit the drafts, then copy and post
+							them manually.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
 						<form onSubmit={handleGenerate} className="space-y-4">
 							<div>
-								<label
-									htmlFor="url"
-									className="text-sm font-medium mb-2 block"
-								>
+								<label htmlFor="url" className="text-sm font-medium mb-2 block">
 									Blog post URL
 								</label>
 								<input
@@ -399,18 +393,14 @@ export const Drafter = () => {
 														: "border-border bg-background hover:bg-accent"
 												}`}
 											>
-												<Icon
-													className={`w-4 h-4 ${PLATFORM_COLORS[p]}`}
-												/>
+												<Icon className={`w-4 h-4 ${PLATFORM_COLORS[p]}`} />
 												{PLATFORM_LABELS[p]}
 											</button>
 										);
 									})}
 								</div>
 
-								{platforms.some((p) =>
-									THREADABLE_PLATFORMS.includes(p),
-								) && (
+								{platforms.some((p) => THREADABLE_PLATFORMS.includes(p)) && (
 									<div className="mt-3 space-y-2">
 										<div className="flex items-center gap-2 flex-wrap">
 											<span className="text-xs text-muted-foreground">
@@ -491,9 +481,7 @@ export const Drafter = () => {
 								type="submit"
 								size="lg"
 								className="w-full"
-								disabled={
-									isGenerating || !url.trim() || platforms.length === 0
-								}
+								disabled={isGenerating || !url.trim() || platforms.length === 0}
 							>
 								{isGenerating ? (
 									<>
@@ -572,9 +560,7 @@ export const Drafter = () => {
 												</span>
 												<span
 													className={`text-xs font-mono shrink-0 ${
-														over
-															? "text-destructive"
-															: "text-muted-foreground"
+														over ? "text-destructive" : "text-muted-foreground"
 													}`}
 												>
 													{draft.charCount} / {draft.charLimit}
@@ -628,10 +614,7 @@ export const Drafter = () => {
 												<Textarea
 													value={draft.content}
 													onChange={(e) =>
-														updateDraftContent(
-															draft.platform,
-															e.target.value,
-														)
+														updateDraftContent(draft.platform, e.target.value)
 													}
 													rows={draft.platform === "linkedin" ? 10 : 5}
 													className="resize-none text-sm"
