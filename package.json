@@ -1,7 +1,7 @@
 {
 	"name": "social-media-drafting-agent",
 	"version": "0.1.0",
-	"description": "",
+	"description": "The Draft Desk — turn any blog post into LinkedIn, X, and Threads drafts. An ADK-TS + Next.js demo.",
 	"private": true,
 	"scripts": {
 		"dev": "next dev --turbopack",

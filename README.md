@@ -1,72 +1,85 @@
 <div align="center">
   <img src="https://files.catbox.moe/vumztw.png" alt="ADK-TS Logo" width="80" />
   <br/>
-  <h1>Social Media Drafting Agent</h1>
-  <b>Turn blog posts into platform-optimized social media drafts using the <code>ADK-TS</code> framework.</b>
+  <h1>The Draft Desk</h1>
+  <b>A single-agent blog-to-social drafter with plugin-powered caching and retries, built on the <code>ADK-TS</code> framework.</b>
   <br/>
-  <i>Single-Agent • Tool-Based • Structured Output • Next.js • TypeScript</i>
+  <i>Single-Agent • Built-in Tools • Lifecycle Plugins • Structured Output • Next.js • TypeScript</i>
 </div>
 
 ---
 
 A copy-first drafting assistant built as a **single LlmAgent** with ADK-TS's built-in
-`WebFetchTool` and a structured output schema. Paste any blog post URL and it reads the article,
-then writes platform-tailored drafts for **LinkedIn, X, Bluesky, Threads, and Mastodon** in the
-tone you pick. The UI lets you edit, regenerate, and copy each draft.
+`WebFetchTool`, two lifecycle plugins, and a Zod output schema. Paste any blog post URL and the
+agent reads the article, then writes platform-tailored drafts for **LinkedIn, X, and Threads**
+in the tone you pick. X and Threads can also be drafted as chained threads of 2–10 posts. The UI
+lets you edit, regenerate, and copy each draft.
 
 ## Features
 
-- **Built-in WebFetchTool**: Uses ADK-TS's out-of-the-box web fetcher — no custom HTML parsing
-  code
-- **Structured JSON Output**: `withOutputSchema` gives the server action a strongly-typed response
-  with zero parsing
-- **Group-Based Drafting**: Five platforms collapse into three writing archetypes. The agent writes
-  one draft per group, capping LLM cost at 3 generations regardless of selection
-- **Explicit Char Limits in Prompts**: Hard limits are passed directly in the prompt — the agent
-  never guesses
-- **Next.js Server Actions**: Typed RPC between the React client and the agent runner — no API
-  routes, no manual `fetch`
-- **Singleton Agent Runner**: The agent is initialized once per process and reused across requests
-- **Tone Selection**: Auto, professional, casual, educational, or punchy — applied across all
+- **Single LlmAgent + built-in WebFetchTool**: No custom HTML parsing — ADK-TS fetches and
+  cleans the article
+- **Per-URL cache plugin**: A custom `BasePlugin` uses `beforeToolCallback` and
+  `afterToolCallback` to short-circuit repeat `web_fetch` calls with a 1-hour TTL — regenerating
+  a draft never re-downloads the article
+- **Reflect-and-retry plugin**: ADK-TS's built-in `ReflectAndRetryToolPlugin` auto-retries
+  flaky blog fetches with bounded backoff
+- **Structured JSON output**: `withOutputSchema` gives the server action a strongly-typed
+  response — zero manual JSON parsing
+- **Post or thread mode**: X and Threads support single posts or chained threads (2–10 posts,
+  default 4); LinkedIn is always a single post
+- **Explicit char limits in prompts**: Hard limits are injected directly into the prompt per
+  platform — the agent never guesses
+- **Next.js Server Actions**: Typed RPC between the React client and the agent runner — no
+  API routes, no manual `fetch`
+- **Singleton agent runner**: The agent is initialized once per process and reused across
+  requests, so the cache plugin persists
+- **Tone selection**: Auto, professional, casual, educational, or punchy — applied across all
   drafts
-- **Live Char Counter**: UI shows per-draft character count against the group's hard limit, with
-  overflow highlighting
-- **Regenerate Per Draft**: Re-roll a single draft without touching the others
-- **Local History**: Last 10 articles saved to `localStorage`, restorable with one click
+- **Per-segment char counter**: For threads, each segment has its own live counter against the
+  platform's per-post limit
+- **Regenerate per draft**: Re-roll a single platform's draft without touching the others;
+  cache keeps it fast
+- **Local history**: Last 10 articles saved to `localStorage`, restorable with one click
+- **Editorial UI**: Pure Tailwind v4 with a paper-feel theme and serif display type — no
+  component library, no Tailwind plugins
 
 ## Architecture and Workflow
 
-This project demonstrates the **single-agent with structured output** pattern in ADK-TS — one
-`LlmAgent` equipped with a built-in tool and a Zod schema. The agent handles fetching and
-generation in one shot, and its output is typed end-to-end.
+This project demonstrates the **single LlmAgent with plugins and structured output** pattern
+in ADK-TS — one agent equipped with a built-in tool, two plugin hooks, and a Zod schema. The
+agent handles fetching and generation in one shot, and its output is typed end-to-end.
 
-### Platform Groups
+### How It Works
 
-The five platforms are bucketed into three writing archetypes. The agent writes one draft per
-group, and the same draft is shown for every platform in that group.
-
-| Group                | Platforms          | Char Limit | Writing Style                                 |
-| -------------------- | ------------------ | ---------- | --------------------------------------------- |
-| `short-casual`       | X, Bluesky         | 280        | Punchy hook, casual voice, 2-3 hashtags       |
-| `medium-community`   | Threads, Mastodon  | 500        | Conversational, community-friendly            |
-| `long-professional`  | LinkedIn           | 3000       | Polished, authoritative, clear takeaway       |
-
-Worst case: **3 LLM drafts regardless of how many platforms the user picks.**
+| Piece                         | Role                                                                              |
+| ----------------------------- | --------------------------------------------------------------------------------- |
+| **Draft Generator Agent**     | Fetches the article via `web_fetch`, writes one draft per selected platform       |
+| **WebFetchCachePlugin**       | Intercepts `web_fetch` — short-circuits on cache hit, stores result on miss       |
+| **ReflectAndRetryToolPlugin** | Auto-retries transient fetch failures (timeouts, network errors) up to 2 times    |
+| **Server Actions**            | `previewPosts` (all platforms) and `regenerateDraft` (one platform)               |
+| **Next.js UI**                | Form for URL + tone + platforms + format; editable draft articles; archive sidebar |
 
 ### Data Flow
 
 ```mermaid
 graph LR
-    UI[Next.js UI] -->|url + tone + platforms| SA[Server Action]
+    UI[Next.js UI] -->|url + tone + platforms<br/>format + threadLength| SA[Server Action]
     SA -->|prompt + char limits| Agent[Draft Generator Agent]
-    Agent -->|web_fetch| Blog[Blog Post URL]
-    Blog -->|article HTML| Agent
+    Agent -->|web_fetch| Cache[WebFetchCachePlugin]
+    Cache -->|cache miss| Blog[Blog Post URL]
+    Cache -->|cache hit| Agent
+    Blog -->|article text| Cache
+    Cache -->|stores result| Agent
+    Retry[ReflectAndRetryToolPlugin] -.->|retries transient errors| Agent
     Agent -->|structured JSON| SA
-    SA -->|GroupDraft array| UI
+    SA -->|PlatformDraft array| UI
 
     style Agent fill:#e1f5fe,color:#01579b
     style SA fill:#e8f5e9,color:#1b5e20
     style UI fill:#fce4ec,color:#880e4f
+    style Cache fill:#fff3e0,color:#e65100
+    style Retry fill:#fff3e0,color:#e65100
 ```
 
 ### Project Structure
@@ -75,21 +88,19 @@ graph LR
 src/
 ├── agents/
 │   └── draft-generator/
-│       └── agent.ts              # LlmAgent with WebFetchTool + withOutputSchema
+│       ├── agent.ts                  # LlmAgent + WebFetchTool + plugins + Zod schema
+│       └── web-fetch-cache-plugin.ts # Per-URL cache via before/afterToolCallback
 ├── app/
-│   ├── actions.ts                # Server actions: previewPosts, regenerateDraft
+│   ├── actions.ts                    # Server actions: previewPosts, regenerateDraft
+│   ├── globals.css                   # Tailwind v4 + editorial theme tokens
 │   ├── layout.tsx
-│   ├── page.tsx                  # Entry point — composes Hero + Drafter
-│   └── globals.css
+│   └── page.tsx                      # Entry point — composes Hero + Drafter
 ├── components/
-│   ├── drafter.tsx               # Main UI (form, draft cards, history)
-│   ├── hero.tsx                  # Landing hero
-│   ├── navbar.tsx                # Top navbar
-│   └── ui/                       # shadcn primitives (button, card, textarea)
-├── lib/
-│   └── utils.ts                  # cn() utility
-├── types.ts                      # Platform / PlatformGroup / GroupDraft
-└── env.ts                        # Environment schema (zod-validated)
+│   ├── drafter.tsx                   # Main UI (form, draft articles, archive sidebar)
+│   ├── hero.tsx                      # Landing hero
+│   └── navbar.tsx                    # Top navbar
+├── types.ts                          # Platform / PostFormat / PlatformDraft
+└── env.ts                            # Environment schema (zod-validated)
 ```
 
 ## Getting Started
@@ -104,22 +115,22 @@ src/
 
 1. Clone this repository
 
-   ```bash
-   git clone https://github.com/IQAIcom/adk-ts-samples.git
-   cd adk-ts-samples/apps/social-media-assistant
-   ```
+```bash
+git clone https://github.com/IQAIcom/adk-ts-samples.git
+cd adk-ts-samples/apps/social-media-drafting-agent
+```
 
 1. Install dependencies
 
-   ```bash
-   pnpm install
-   ```
+```bash
+pnpm install
+```
 
 1. Set up environment variables
 
-   ```bash
-   cp .env.example .env
-   ```
+```bash
+cp .env.example .env
+```
 
 Edit `.env` and add your API key:
 
@@ -139,86 +150,83 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Usage
 
-Paste a blog URL, pick a tone, toggle the platforms you care about, and click **Generate drafts**.
+Paste a blog URL, pick a voice, choose your platforms, optionally switch X/Threads to
+**Thread** mode with a length of 2–10, then click **Draft**.
 
 ```text
-URL:       https://your-blog.com/post-slug
-Tone:      Auto
-Platforms: LinkedIn, X, Bluesky, Threads, Mastodon
+Blog URL:   https://your-blog.com/post-slug
+Voice:      Auto
+For:        LinkedIn, X, Threads
+As:         Thread (4 posts)
 
->> Generate drafts
+>> Draft →
 
 Server action runs:
-  1. Calls the draft generator runner
-  2. Agent invokes web_fetch to read the article
-  3. Agent returns structured JSON with 3 group drafts
-  4. UI renders 3 editable cards — one per group
+  1. Calls the draft generator runner (singleton — plugins persist)
+  2. Agent invokes web_fetch (cache miss) → fetches and stores
+  3. Agent returns structured JSON with one draft per platform
+  4. UI renders editable articles
 
 ==================================================
   Drafts for: "Your article title"
 ==================================================
 
-[ Long-form professional ]        2471 / 3000
-  For: LinkedIn
-  Great for long-form takes...
+[ LinkedIn ] single post                  2,471 / 3,000
+  Polished, authoritative take with a clear hook...
 
-[ Medium community ]               398 / 500
-  For: Threads, Mastodon
-  Hey folks — quick thought...
+[ X ] thread · 4 posts                      268 / 280   (max segment)
+  1/4  The hook post — punchy opener.
+  2/4  Expand on point one.
+  3/4  Drop the stat or example.
+  4/4  Wrap with a CTA. Full post ↓
 
-[ Short & casual ]                 246 / 280
-  For: X, Bluesky
-  Quick hot take with a hook...
+[ Threads ] single post                     421 / 500
+  Hey folks — quick thought on this piece...
 ```
 
-Each card has **Copy**, **Regenerate**, and is fully editable inline.
+Each draft has **Copy** (appends the URL for single posts; appends the URL to the final
+segment for threads) and **Rewrite** (regenerates that draft only — the cache keeps it fast).
+The archive sidebar stores your last 10 articles in `localStorage` for one-click restore.
 
 ## Real-World Use Cases
 
-The **read → group → draft** pattern in this project applies anywhere you need consistent content
-across multiple surfaces with different length and voice constraints. Examples:
+The **read → draft per surface** pattern in this project applies anywhere you need consistent
+content across multiple surfaces with different length and voice constraints. Here are examples
+of what you can build by extending this agent:
 
 ### Developer Advocacy
 
-A DevRel team publishes a technical blog post and needs to announce it on LinkedIn (professional),
-X (punchy), Bluesky (casual dev community), Threads (conversational), and Mastodon (federated
-tech community) — each with different character budgets and tonal expectations.
+A DevRel team publishes a technical blog post and needs to announce it on LinkedIn
+(professional long-form), X (punchy hook + thread), and Threads (conversational community
+voice) — each with different character budgets and tonal expectations. Swap the tone
+presets for your brand voice and ship announcements in one pass.
 
-### Content Repurposing for Newsletter Writers
+### Newsletter Repurposing
 
-Feed in a newsletter issue or long-form post. Get back three drafts you can paste into your social
-tabs without re-reading the full piece or manually cutting it down.
+Feed in a newsletter issue or long-form post. Get back platform-tailored drafts you can paste
+directly into each network without re-reading the full piece or manually cutting it down. Add
+more platforms (Bluesky, Mastodon, Substack Notes) by extending the `Platform` union.
 
 ### Solo Creators & Indie Hackers
 
-Indie makers launching a product announcement can generate all five platform posts from a single
-changelog or blog post without burning 45 minutes on copywriting.
+Indie makers launching a product announcement can generate all their platform posts from a
+single changelog or launch-day blog post — without burning 45 minutes on copywriting. Switch X
+to thread mode for a 6-post launch teardown.
 
 ### How to Adapt This Pattern
 
-The group-based drafting pattern generalizes beyond social media. You can swap the platform list
-for any set of output surfaces with shared writing archetypes:
+The single-agent + plugins + structured output pattern generalizes to any domain that needs
+to gather content from a source and produce it for several output surfaces:
 
-| Domain             | Groups                                | Shared Constraint                                     |
-| ------------------ | ------------------------------------- | ----------------------------------------------------- |
-| Email marketing    | Subject line / preview / body         | Tone consistency, length ladder                       |
-| Product updates    | Changelog / release notes / tweet     | Audience: developers vs. users vs. general public     |
-| Sales outreach     | Cold email / LinkedIn DM / follow-up  | Same value prop, different formality levels           |
-| Internal comms     | All-hands / team email / Slack post   | Same announcement, different audience depth           |
-
-You can also:
-
-- **Add more platforms** — update `PLATFORM_GROUPS` in `src/types.ts` and the agent instruction
-- **Swap `WebFetchTool`** for `WebSearchTool` if your input is a topic instead of a URL
-- **Add a reviewer agent** — insert a second agent that critiques and revises drafts before
-  returning them
-- **Auto-post via MCP** — plug in a social-posting MCP server (e.g.
-  [`social-mcp`](https://www.npmjs.com/package/social-mcp)) and wire a "Publish" button to a
-  publisher agent. Each platform tool becomes available to the agent as soon as its credentials
-  are set
-- **Schedule posts** — pair the drafter with a scheduler (cron job, Next.js cron route, or a
-  queue like BullMQ) so drafts are stored and published at chosen times. Combine with MCP
-  auto-posting for full hands-off publishing
+| What to Customize        | How                                                                    | Example                                                        |
+| ------------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Input tool**           | Swap `WebFetchTool` for another ADK-TS tool                            | Use `WebSearchTool` to take a topic instead of a URL           |
+| **Output surfaces**      | Extend `Platform` in `src/types.ts` + update `PLATFORM_SPECS`          | Add Bluesky, Mastodon, Substack Notes, email subject + body    |
+| **Cache policy**         | Tune `WebFetchCachePlugin` TTL or key strategy                         | Longer TTL for static content; cache by domain for rate limits |
+| **Retry policy**         | Configure `ReflectAndRetryToolPlugin` params                           | Raise `maxRetries` for flakier sources                         |
+| **Quality gate**         | Add a reviewer agent that critiques and revises before returning       | Insert a sub-agent that enforces brand voice                   |
+| **Publishing**           | Plug in a social-posting MCP server and wire a "Publish" button        | Each platform tool becomes available to a publisher agent      |
+| **Scheduling**           | Pair with a cron route or queue (BullMQ, Inngest) to publish on a delay | Draft now, ship at 9am tomorrow                                |
 
 ## Useful Resources
 
@@ -226,6 +234,7 @@ You can also:
 
 - [ADK-TS Documentation](https://adk.iqai.com/)
 - [Built-in Tools Reference](https://adk.iqai.com/docs/framework/tools/built-in-tools)
+- [Plugins Reference](https://adk.iqai.com/docs/framework/plugins)
 - [ADK-TS Samples Repository](https://github.com/IQAIcom/adk-ts-samples)
 - [ADK-TS GitHub Repository](https://github.com/IQAICOM/adk-ts)
 
@@ -247,9 +256,8 @@ You can also:
 
 ## Contributing
 
-This Social Media Drafting Agent is part of the
-[ADK-TS Samples](https://github.com/IQAIcom/adk-ts-samples) repository, a collection of example
-projects demonstrating ADK-TS capabilities.
+The Draft Desk is part of the [ADK-TS Samples](https://github.com/IQAIcom/adk-ts-samples)
+repository, a collection of example projects demonstrating ADK-TS capabilities.
 
 We welcome contributions to the ADK-TS Samples repository! You can:
 
@@ -266,6 +274,6 @@ This project is licensed under the MIT License — see the [LICENSE](../../LICEN
 
 ---
 
-**Ready to draft?** This project showcases how a single LlmAgent with one built-in tool and a
-Zod output schema can replace hundreds of lines of custom code. Clone it, swap the platforms, and
-ship your own multi-surface content agent.
+**🎉 Ready to draft?** This project showcases how a single LlmAgent with one built-in tool,
+two plugin hooks, and a Zod output schema can replace hundreds of lines of custom code. Clone
+it, swap the platforms, add your own plugins, and ship your own multi-surface content agent.
