@@ -2,15 +2,15 @@
 
 import {
 	AlertCircle,
+	AtSign,
+	Briefcase,
 	ClipboardCheck,
 	ClipboardCopy,
 	Clock,
-	Linkedin,
 	Loader2,
 	MessageCircle,
 	RefreshCw,
 	Trash2,
-	Twitter,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -41,9 +41,9 @@ const TONES: { value: Tone; label: string; description: string }[] = [
 	{ value: "punchy", label: "Punchy", description: "Bold, short" },
 ];
 
-const PLATFORM_ICONS: Record<Platform, typeof Linkedin> = {
-	linkedin: Linkedin,
-	x: Twitter,
+const PLATFORM_ICONS: Record<Platform, typeof Briefcase> = {
+	linkedin: Briefcase,
+	x: AtSign,
 	threads: MessageCircle,
 };
 
@@ -130,7 +130,6 @@ const timeAgo = (ts: number) => {
 
 const LABEL =
 	"text-[10px] uppercase tracking-[0.22em] text-ink-muted font-medium";
-const HAIRLINE = "border-t border-rule";
 const CHIP_BASE =
 	"inline-flex items-center gap-2 px-3 py-1.5 text-[12px] border transition-colors";
 const CHIP_ON = "border-ink bg-ink text-paper";
@@ -236,7 +235,7 @@ export const Drafter = () => {
 			setEditableDrafts(result.drafts);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			setError(`Failed to generate drafts: ${message}`);
+			setError(message);
 		} finally {
 			setIsGenerating(false);
 		}
@@ -285,7 +284,7 @@ export const Drafter = () => {
 			);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			setError(`Regenerate failed: ${message}`);
+			setError(message);
 		} finally {
 			setRegenerating((r) => ({ ...r, [draft.platform]: false }));
 		}
@@ -648,7 +647,7 @@ export const Drafter = () => {
 									</article>
 								);
 							})}
-							<div className={HAIRLINE} />
+							<div className="border-t border-rule" />
 						</div>
 					</section>
 				)}

@@ -7,7 +7,6 @@ config();
  * Environment variable schema.
  *
  * GOOGLE_API_KEY is required (it powers the LLM).
-
  */
 export const envSchema = z.object({
 	ADK_DEBUG: z.coerce.boolean().default(false),
