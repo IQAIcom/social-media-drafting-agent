@@ -1,154 +1,82 @@
-# Ship a blog-to-social AI agent with ADK-TS and Next.js
+# Build an AI agent that turns blog posts into social drafts
 
-_Build "The Draft Desk" — a Next.js app that turns any blog post into LinkedIn, X, and
-Threads drafts — using a single ADK-TS `LlmAgent`, the built-in `WebFetchTool`, a Zod output
-schema, and two plugins that make the whole thing fast and resilient._
+Every new blog post means rewriting the same idea for social media — a punchy X post, a polished LinkedIn update, maybe an X thread. Each platform has its own voice and character limits, so drafts can't just be copy-pasted. It's repetitive work, and an ideal fit for an LLM.
 
-> **What you'll learn:** the ADK-TS single-agent pattern, structured output with Zod, the
-> plugin lifecycle (`beforeToolCallback` / `afterToolCallback`), composing built-in plugins,
-> and handling upstream LLM errors at the action boundary.
->
-> **Stack:** [ADK-TS](https://adk.iqai.com/) · Next.js 15 (App Router + Server Actions) ·
-> Tailwind v4 · TypeScript.
->
-> **Time:** ~60–90 minutes if you type along.
+In this tutorial we'll build an agent that does exactly that: reads a blog post and produces platform-tailored drafts in one pass. It becomes the backend of a small Next.js app where you paste a URL, pick a tone, and get a draft per platform.
 
-![The Draft Desk — finished app screenshot placeholder](./screenshots/finished.png)
+We'll use ADK-TS — a TypeScript framework for building AI agents — and work through its built-in web-fetching tool, structured output with a Zod schema, and its plugin system, which we'll use to add both caching and retry logic.
 
----
+You do not need any prior AI knowledge to follow along with the article. I have already prepared the UI for this project in the [starter branch](https://github.com/IQAIcom/adk-ts-samples/tree/starter/apps/social-media-drafting-agent) of the GitHub repo so we can focus on the agent. You can also find the final version of the project on the `main` branch for reference. Here's what we're building:
 
-## 1. What you'll build
+![The Draft Desk — final app screenshot](./screenshots/finished.png)
 
-Paste a blog URL. Pick a voice (auto, professional, casual, educational, punchy). Toggle
-the platforms you want (LinkedIn, X, Threads). For X and Threads, choose **single post** or
-**thread** mode (with a 2–10 post length stepper). Click **Draft**.
+## What we're building
 
-An ADK-TS agent fetches the article, then writes one platform-tailored draft per selection —
-respecting each platform's hard char limit per post. Every draft is editable inline, has its
-own **Copy** and **Rewrite** button, and the last 10 articles you run live in a sidebar
-archive (stored in `localStorage`).
+The app does three things: it takes a blog URL and some preferences, reads the article, and produces one draft per requested platform. For X and Threads we also support a **thread** mode that generates a chained 2–10 post thread instead of a single post while LinkedIn is always a single post.
 
-The whole thing is driven by **one `LlmAgent`**. No orchestration, no sub-agents. The
-interesting work is in the plugins.
+The architecture for this demo is deliberately small:
 
----
+- A **single agent** with one tool (read a URL) and a schema for its output.
+- Two **plugins**: a custom one for caching article fetches, and a built-in one from ADK-TS for retrying flaky network calls.
+- A thin **Next.js Server Action** layer that invokes the agent and returns results to the UI.
 
-## 2. The starter
+This base provides a clear pattern for building agents with tools and plugins, without the complexity of multiple sub-agents or an orchestrator. The agent is responsible for fetching the article and generating drafts; the server action handles prompt construction and response formatting; the plugins handle caching and retry logic.
 
-Clone the repo and check out the `starter` branch:
+## Grabbing the starter code
+
+For you to follow along, clone the repo and switch to the starter branch:
 
 ```bash
-git clone https://github.com/IQAIcom/adk-ts-samples.git
-cd adk-ts-samples/apps/social-media-drafting-agent
+git clone https://github.com/IQAIcom/social-media-drafting-agent.git
+cd social-media-drafting-agent
 git checkout starter
 pnpm install
 ```
 
-You're given:
+The starter branch includes:
 
-- **The UI is done** — [`src/components/drafter.tsx`](src/components/drafter.tsx) handles
-  the form, draft articles, and history. It's already wired to call `previewPosts` and
-  `regenerateDraft` from `@/app/actions`.
-- **Types are defined** — [`src/types.ts`](src/types.ts) has `Platform`, `Tone`,
-  `PostFormat`, `PlatformDraft`, char limits, and thread bounds. You'll import these into
-  the agent and actions.
-- **Env is schema-validated** — [`env.ts`](env.ts) parses `GOOGLE_API_KEY` + `LLM_MODEL` at
-  boot. Missing key → process refuses to start.
-- **Dependencies are pre-installed** — `@iqai/adk`, `zod`, `lucide-react`, Tailwind v4.
-- **Reference implementation** — [`_final_code/`](_final_code/) has the finished code.
-  Peek when stuck.
+- The complete **UI** in `src/components` and `src/app/page.tsx` — a form for pasting a URL, picking a tone, selecting platforms, and viewing generated drafts.
+- The **domain types** in `src/types.ts` — TypeScript types for platforms, tones, article previews, and draft shapes.
+- An **environment schema** in `env.ts` — a Zod schema for required environment variables, including the LLM model and the Google API key.
+- A **Server Actions** file in `src/app/actions.ts` with stub functions for `previewPosts` and `regenerateDraft`.
 
-What's **not** there:
-
-- `src/agents/` doesn't exist yet. You'll create it.
-- `src/app/actions.ts` has two stubs that throw:
-  ```
-  Error: Not implemented yet — build the agent at src/agents/draft-generator/agent.ts…
-  ```
-
-Set up your env and start the dev server:
+Copy the env example, paste a key from [Google AI Studio](https://aistudio.google.com/app/api-keys), and start the dev server:
 
 ```bash
 cp .env.example .env
-# edit .env and paste your Google AI Studio key
+# paste your GOOGLE_API_KEY into .env
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The form renders. Clicking **Draft**
-throws the stub error — exactly the cliffhanger we pick up next.
+Tou should see the UI at `http://localhost:3000` with a form and a **Draft** button, but no drafts will be generated yet. Clcicking the button shows a stack trace error because the agent isn't implemented yet:
 
----
-
-## 3. Setting up ADK-TS
-
-ADK-TS (the **Agent Development Kit** for TypeScript) is already a dependency. The starter's
-`package.json` has:
-
-```json
-{
-  "dependencies": {
-    "@iqai/adk": "0.8.5",
-    "zod": "^4.1.12",
-    ...
-  }
-}
+```text
+Not implemented yet — build the agent at src/agents/draft-generator/agent.ts and wire it up here.
 ```
 
-The pieces we'll use from it in this article:
+That is the starting point.
 
-| Import                          | What it is                                                 |
-| ------------------------------- | ---------------------------------------------------------- |
-| `AgentBuilder`                  | Fluent builder that configures and builds an `LlmAgent`    |
-| `WebFetchTool`                  | Built-in tool for reading a URL as clean article text      |
-| `BasePlugin`                    | Base class for custom plugins with lifecycle callbacks     |
-| `ReflectAndRetryToolPlugin`     | Built-in plugin that retries flaky tool calls              |
+## Step 1: Build the agent
 
-Let's verify your env is wired. In `env.ts` you already have:
+Before we write any code, let's review the core concepts.
 
-```ts
-import { config } from "dotenv";
-import { z } from "zod";
+An **agent** is an LLM paired with a set of tools it can call and a schema its output must conform to. When the agent runs, it receives a prompt, may call tools, and returns a response. If you're coming from the raw OpenAI SDK or ChatGPT, the new concepts are **tools** (functions the model can invoke) and **structured output** (declaring the expected shape of a response and letting the framework enforce it).
 
-config();
+Our agent needs two capabilities: read a URL, and return structured JSON containing a title, the article URL, and an array of drafts. ADK-TS gives us both.
 
-export const envSchema = z.object({
-  ADK_DEBUG: z.coerce.boolean().default(false),
-  GOOGLE_API_KEY: z.string().min(1, "GOOGLE_API_KEY is required"),
-  LLM_MODEL: z.string().default("gemini-2.5-flash"),
-});
-
-export const env = envSchema.parse(process.env);
-```
-
-Default model is `gemini-2.5-flash` — fast, cheap, fine for this demo. You can override
-`LLM_MODEL=gemini-2.5-pro` in `.env` if you want.
-
-Create the agent folder:
+Create the folder:
 
 ```bash
 mkdir -p src/agents/draft-generator
 ```
 
-That's the scaffolding. Now the fun part.
-
----
-
-## 4. The minimum viable agent
-
-Our agent has exactly one job: given a URL, a tone, and a list of platforms, return
-structured JSON with a draft per platform.
-
-Create `src/agents/draft-generator/agent.ts`:
+Then create `agent.ts` inside it:
 
 ```ts
 import { AgentBuilder, WebFetchTool } from "@iqai/adk";
 import z from "zod";
 import { env } from "../../../env";
 
-/**
- * Schema the draft generator must return. One draft per target platform.
- * For X or Threads in thread mode, `segments` carries the chained posts.
- */
 export const postDraftsSchema = z.object({
   article: z.object({
     url: z.string(),
@@ -205,43 +133,48 @@ export const getDraftGenerator = async () => {
 };
 ```
 
-**What's happening:**
+Most of the file is prompt text. We define the actual agent in the `AgentBuilder` chain at the bottom. Walking through it:
 
-- `AgentBuilder.create("draft_generator")` — start a builder. The string is the agent's
-  name, used in logs.
-- `.withDescription(...)` — a one-liner for the agent's purpose.
-- `.withInstruction(...)` — the system prompt. Platform guidelines, char limits, URL
-  handling rules. The char limits aren't guessed — they're baked into the prompt so the
-  model has no room to hallucinate "oh, X is 500 chars now."
-- `.withModel(env.LLM_MODEL)` — Gemini 2.5 Flash by default.
-- `.withTools(new WebFetchTool())` — give the agent the built-in `web_fetch` tool. No HTML
-  parsing code. ADK-TS does the fetching, cleaning, and returning text.
-- `.withOutputSchema(postDraftsSchema)` — register the Zod schema. The agent's output is
-  validated against it. If the model returns garbage, this throws; if it returns well-formed
-  JSON, the action gets a **typed** object.
-- `.build()` returns `{ runner }` — the runner is what you call `.ask(prompt)` on.
+`AgentBuilder.create("draft_generator")` begins a new agent definition. The string is the agent's name, used for logging.
 
-> **ADK-TS feature spotlight:** `withOutputSchema(zodSchema)` is the backbone of reliable
-> agent output. Without it, you'd be parsing free-form text and guessing at shape. With it,
-> your server action gets a `z.infer`-typed object and TypeScript catches mismatches at
-> compile time.
+`.withDescription(...)` is a short summary of what the agent does. It matters most in multi-agent setups where an orchestrator needs to pick between sub-agents.
 
-The schema has two clever bits worth calling out:
+`.withInstruction(...)` is the system prompt. This is the most consequential line in the file, and a few details in this one are worth highlighting:
 
-- **`segments: z.array(z.string()).optional()`** — a draft can be a single post (`content`
-  only) or a chained thread (`content` + `segments`). The optional field lets one schema
-  cover both cases cleanly.
-- **`platform: z.enum(["linkedin", "x", "threads"])`** — the model can't invent a platform.
-  If it returns `"bluesky"`, validation fails immediately.
+- It lists per-platform character limits explicitly. Without concrete numbers, models tend to produce plausible-sounding output that silently misses the limit — a 320-char "tweet," for example. Naming the number keeps the model honest.
+- It instructs the model not to include the article URL in draft text. The client appends the URL when the user copies a draft, so including it in both places produces duplicates.
+- It states the output-shape rules in plain language alongside the schema. The schema alone usually suffices, but redundant instruction reduces retry rates noticeably.
 
----
+`.withModel(env.LLM_MODEL)` selects the model. The default is `gemini-2.5-flash`, which is fast and inexpensive. Setting `LLM_MODEL=gemini-2.5-pro` in `.env` produces nicer prose at the cost of latency.
 
-## 5. Wiring the agent to the UI
+`.withTools(new WebFetchTool())` grants the agent access to ADK-TS's built-in `WebFetchTool`. It handles fetching a URL, stripping boilerplate (navigation, ads, cookie banners), and returning clean article text. Without it, the equivalent work means implementing or integrating a Readability-style parser.
 
-The UI calls `previewPosts` and `regenerateDraft` from `@/app/actions`. Time to fill in
-those stubs.
+`.withOutputSchema(postDraftsSchema)` registers the Zod schema. When a schema is registered, `runner.ask()` returns output that is already parsed and validated. If the model produces anything that does not conform, the call throws. This eliminates the typical `try { JSON.parse(response) } catch {...}` pattern.
 
-Open `src/app/actions.ts` and replace the contents:
+Two details in the schema itself are worth noting:
+
+```ts
+drafts: z.array(
+  z.object({
+    platform: z.enum(["linkedin", "x", "threads"]),
+    content: z.string(),
+    segments: z.array(z.string()).optional(),
+    hashtags: z.array(z.string()),
+  }),
+),
+```
+
+The `platform: z.enum([...])` constraint prevents the model from inventing platforms. If it returns `"bluesky"`, validation fails before the server action receives the result.
+
+The optional `segments` field lets one schema cover both draft shapes. Single-post drafts have `content` only; chained threads have both `content` and `segments`. No union type, no discriminator — the optional field carries both cases.
+
+That completes the agent definition. Saving the file makes no functional change yet because nothing is calling it. The next step wires it up.
+
+## Step 2: Wire it to the UI
+
+The UI imports `previewPosts` and `regenerateDraft` from the Server Actions file. If you're new to Next.js Server Actions: they're functions marked with a `"use server"` directive that Next.js makes callable from client components as if they were local async functions. The framework handles the RPC for you.
+
+Open `src/app/actions.ts` and replace the stubs with:
 
 ```ts
 "use server";
@@ -259,7 +192,7 @@ import {
   type Tone,
 } from "@/types";
 
-// Singleton runner — avoid re-initializing on every call.
+// Singleton — build the runner once, reuse across requests.
 let draftRunner: Awaited<ReturnType<typeof getDraftGenerator>> | null = null;
 
 async function ensureDraftRunner() {
@@ -267,7 +200,6 @@ async function ensureDraftRunner() {
   return draftRunner;
 }
 
-// Only X and Threads can be threaded; LinkedIn is always a single post.
 const isThreadable = (platform: Platform): boolean =>
   platform === "x" || platform === "threads";
 
@@ -416,63 +348,35 @@ Return JSON with the article block AND exactly one draft for "${platform}". Try 
     throw new Error(`Agent did not return a draft for platform: ${platform}`);
   }
 
-  return buildDraft(
-    match.platform,
-    match.content,
-    match.hashtags,
-    match.segments,
-    format,
-  );
+  return buildDraft(match.platform, match.content, match.hashtags, match.segments, format);
 }
 ```
 
-**Two patterns worth calling out:**
+Two patterns in this file are worth explaining.
 
-1. **Singleton runner.** `ensureDraftRunner` lazily builds the runner the first time it's
-   needed, then caches it in a module-level variable. Next.js Server Actions run per
-   request, so without the singleton you'd rebuild the agent every single time — slow, and
-   it breaks plugin state (we'll see why in a minute).
+**The singleton runner.** `ensureDraftRunner` builds the agent the first time it is called, then caches it in a module-level variable. Every subsequent call returns the same runner.
 
-2. **Prompt injection, literally.** The char limits and thread length aren't in the system
-   prompt — they're injected per request via `buildPlatformBrief`. The model is told
-   exactly what to fit and what format to return.
+Server Actions run per request, but module-level state in Next.js persists for the lifetime of the Node process. Rebuilding the runner on every call would be wasteful, and — more importantly — would prevent the stateful plugins added in later steps from retaining their state across requests. The cache relies on this.
 
-Save, restart `pnpm dev`, and try it:
+**Prompt construction.** The per-platform character limits and the thread length are not in the system prompt. They are injected into the user prompt on every call via `buildPlatformBrief`. The general principle: the system prompt describes the agent's stable behavior; the user prompt carries request-specific variables. This keeps the agent reusable across requests with different constraints.
 
-```
-URL:       https://your-blog.com/post-slug
-Voice:     Auto
-For:       LinkedIn, X, Threads
-As:        Post
-```
+Save the file and restart the dev server — Next.js caches imports, so a restart is necessary.
 
-Click **Draft**. After a few seconds you get three draft articles, each under their char
-limit, each with tone and platform voice adapted. Click **Rewrite** on one — it regenerates
-just that draft.
+Paste a blog URL, choose a tone, select some platforms, and click **Draft**. After 4–8 seconds, three drafts appear, each within its char limit and each in a distinct voice. Inline editing and per-draft regeneration work.
 
-Ship it? Almost. There's a problem.
+The app functions. Clicking **Rewrite** a few times reveals a problem.
 
----
+## Step 3: A plugin for faster regeneration
 
-## 6. The regenerate problem → a custom plugin
+Every rewrite takes the same 4–8 seconds as the first draft. The LLM's response changes each time, but the article is identical to the one fetched 30 seconds ago. The `web_fetch` call is repeated on every request, and that call accounts for most of the latency.
 
-Click **Rewrite** a few times. Notice the delay? Each rewrite takes the same ~4–8 seconds as
-the first draft. That's because the agent runs `web_fetch` again every single time — we're
-re-downloading and re-parsing the same article for every regenerate.
+We could cache the article text in the server action and thread it through each call. That works, but the action accumulates responsibilities it shouldn't own.
 
-We could paper over this by threading the article text through every call. But that makes
-the server action responsible for state management. The cleaner answer is a **plugin**:
+A cleaner approach is to use ADK-TS's **plugin** system.
 
-> **ADK-TS feature spotlight: plugins.** Plugins are lifecycle hooks that sit around the
-> agent's execution. For tool calls specifically, `beforeToolCallback` fires before the
-> tool runs and can short-circuit it (return a value instead); `afterToolCallback` fires
-> after the tool runs and can observe or transform the result.
+A plugin is a class that hooks into the agent's lifecycle. Several hooks exist; the two relevant here are `beforeToolCallback` and `afterToolCallback`, which fire before and after any tool call. `beforeToolCallback` can return a value, and when it does, the framework short-circuits the tool: the agent receives the returned value as if the tool had produced it. The tool itself is not invoked.
 
-We'll build a plugin that:
-
-- Intercepts every `web_fetch` call (via `beforeToolCallback`)
-- If the URL is in cache and not expired, return the cached result — the tool never runs
-- Otherwise let the tool run normally, then store the result (via `afterToolCallback`)
+That is exactly what we need for a cache.
 
 Create `src/agents/draft-generator/web-fetch-cache-plugin.ts`:
 
@@ -480,9 +384,6 @@ Create `src/agents/draft-generator/web-fetch-cache-plugin.ts`:
 import type { BaseTool, ToolContext } from "@iqai/adk";
 import { BasePlugin } from "@iqai/adk";
 
-/**
- * Caches results from the ADK-TS `WebFetchTool` by URL with a TTL.
- */
 export class WebFetchCachePlugin extends BasePlugin {
   private cache = new Map<string, { result: unknown; expiresAt: number }>();
   private readonly ttlMs: number;
@@ -509,11 +410,10 @@ export class WebFetchCachePlugin extends BasePlugin {
 
     const hit = this.cache.get(key);
     if (hit && Date.now() < hit.expiresAt) {
-      // Short-circuit: the agent receives the cached result as if it just fetched.
       return hit.result as Record<string, unknown>;
     }
 
-    return undefined; // allow the tool to run normally
+    return undefined;
   }
 
   async afterToolCallback(params: {
@@ -527,7 +427,6 @@ export class WebFetchCachePlugin extends BasePlugin {
     const key = this.keyFor(params.toolArgs);
     if (!key) return undefined;
 
-    // Only cache successful results
     if ((params.result as { success?: boolean }).success !== false) {
       this.cache.set(key, {
         result: params.result,
@@ -535,25 +434,18 @@ export class WebFetchCachePlugin extends BasePlugin {
       });
     }
 
-    return undefined; // don't modify the fresh result
+    return undefined;
   }
 }
 ```
 
-**Three things to notice:**
+The contract is the important part: `beforeToolCallback` returns `undefined` to let the tool run as normal, or a value to bypass the tool entirely.
 
-1. **The return value of `beforeToolCallback` is the contract.** Return `undefined` and the
-   tool runs normally. Return a value and that value is fed to the agent **as if the tool
-   had just returned it**. The agent never knows the cache existed.
+The `if (params.tool.name !== "web_fetch") return undefined;` check matters because plugins are global — they are invoked for every tool the agent calls. Filtering by name ensures this cache only interacts with `web_fetch` and ignores any additional tools added later.
 
-2. **We filter by tool name.** `if (params.tool.name !== "web_fetch") return undefined;` —
-   plugins are global. If you later add a second tool, this plugin won't touch it.
+The cache is a `Map` keyed by URL with per-entry expiration. A one-hour TTL is a reasonable default: short enough to catch same-day edits to a blog post, long enough to cover a user iterating on drafts for a single article.
 
-3. **Cache state lives on the plugin instance.** Since we instantiate the plugin once and
-   attach it to the singleton runner, cache entries survive across server action calls for
-   the lifetime of the process.
-
-Now wire it into the agent. Open `src/agents/draft-generator/agent.ts` and update:
+Wire the plugin into the agent in `agent.ts`:
 
 ```diff
 -import { AgentBuilder, WebFetchTool } from "@iqai/adk";
@@ -565,8 +457,6 @@ Now wire it into the agent. Open `src/agents/draft-generator/agent.ts` and updat
 +const webFetchCachePlugin = new WebFetchCachePlugin(60 * 60 * 1000);
 ```
 
-And in the builder chain:
-
 ```diff
      .withModel(env.LLM_MODEL)
      .withTools(new WebFetchTool())
@@ -575,21 +465,15 @@ And in the builder chain:
      .build();
 ```
 
-Reload, generate drafts, click **Rewrite**. The first fetch takes a few seconds; every
-rewrite after that returns almost instantly. The agent's text is still regenerated each
-time (that's the _point_ of rewrite), but the article download — which dominated latency —
-is gone.
+Note where the plugin is instantiated: it is a module-level `const`. Because the runner is a singleton, and the plugin is attached to that runner, the plugin's cache Map persists for the lifetime of the process. This is the reason the singleton pattern was established in Step 2.
 
-Confirm in your server logs: only the first `web_fetch` shows a network trip.
+Restart the dev server and test again. The first draft takes the usual time, but every subsequent rewrite returns in roughly a second — the LLM is still generating fresh text, but the article download is eliminated. Server logs show a single `web_fetch` call on the first generation and none after.
 
----
+## Step 4: Handling flaky networks
 
-## 7. Flaky networks → the retry plugin
+Blog servers become unavailable. CDNs slow down. Network packets get dropped. In the current implementation, a single transient failure in `web_fetch` propagates through the entire generation and reaches the user as a stack trace.
 
-Blogs go down. DNS flakes. Your lunch-time Wi-Fi drops a packet. Right now if `web_fetch`
-fails, the whole generation explodes.
-
-ADK-TS ships `ReflectAndRetryToolPlugin` for exactly this. Add it to the agent:
+ADK-TS ships `ReflectAndRetryToolPlugin` for this case. Add it to `agent.ts`:
 
 ```diff
  import {
@@ -609,46 +493,31 @@ ADK-TS ships `ReflectAndRetryToolPlugin` for exactly this. Add it to the agent:
 +});
 ```
 
-And in the builder chain:
-
 ```diff
 -    .withPlugins(webFetchCachePlugin)
 +    .withPlugins(webFetchCachePlugin, reflectRetryPlugin)
 ```
 
-That's it. When `web_fetch` fails transiently, the plugin retries up to 2 times before
-giving up. `throwExceptionIfRetryExceeded: true` ensures the failure surfaces as a real
-error (so we can handle it in step 8) instead of silently returning empty output.
+`ReflectAndRetryToolPlugin` retries a failed tool call up to `maxRetries` times. The "reflect" portion of the name refers to the fact that the plugin informs the model of the failure reason, allowing subsequent attempts to adapt — for example, to try a different URL formulation if the first was rejected.
 
-> **Feature spotlight: plugin composition.** You pass multiple plugins to
-> `.withPlugins(...)` and they stack. Order matters — `webFetchCachePlugin` comes first, so
-> cache hits short-circuit _before_ retry ever sees them. On a miss, both plugins' hooks
-> run in the expected order.
+`throwExceptionIfRetryExceeded: true` ensures that exhausting retries surfaces as a real error rather than an empty response. Without it, the agent would silently proceed with no article text and produce useless drafts.
 
----
+Plugin order matters. The cache plugin is passed first, followed by retry. Plugins execute in order, so a cache hit short-circuits before the retry plugin is invoked. On a miss, both plugins participate in the usual sequence.
 
-## 8. When the model itself fails
+## Step 5: Handling model-level failures
 
-Here's a real error from a production run of this app:
+The following error appeared during a real session shortly after deployment:
 
-```
+```text
 Failed to parse and validate LLM output against the schema.
-Raw output: Error: {"error":{"code":503,"message":"This model is currently experiencing
-high demand. Spikes in demand are usually temporary. Please try again later.","status":"UNAVAILABLE"}}
+Raw output: Error: {"error":{"code":503,"message":"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.","status":"UNAVAILABLE"}}
 ```
 
-Gemini returned an HTTP 503 (overloaded). The error string came back as the model's
-response text, which then failed schema validation because it wasn't JSON. The UI surfaced
-this as a 400-character zod dump.
+Gemini returned a 503 because its service was temporarily overloaded. The SDK surfaced the error as the model's text output, and schema validation then failed when trying to parse that error string as JSON. The user saw a 400-character validation stack trace.
 
-Two fixes:
+We need two fixes. First, retry transient model errors — 503s typically clear in a few seconds. `ReflectAndRetryToolPlugin` doesn't help here because it wraps tool calls, not the model's own invocation, so we have to wrap `runner.ask()` ourselves. Second, map whatever survives retry into short, user-facing messages.
 
-### 8a. Retry transient errors around `runner.ask`
-
-`ReflectAndRetryToolPlugin` wraps **tool calls**, not the model's own call. If Gemini is
-overloaded, we need to retry the whole `runner.ask()` invocation.
-
-Add a retry helper at the top of `src/app/actions.ts` (after the imports):
+Add a retry helper in `actions.ts` after the imports:
 
 ```ts
 type DraftRunner = Awaited<ReturnType<typeof getDraftGenerator>>;
@@ -676,11 +545,9 @@ async function askWithRetry(
 }
 ```
 
-Exponential backoff: 500ms, 1s, 2s. Only retry transient errors — don't loop on bad input.
+The backoff schedule is 500ms, 1s, 2s. The regex matches only errors that are likely to resolve on retry. Looping on a schema violation or a missing API key would delay the inevitable failure without changing the outcome.
 
-### 8b. Map noisy errors to short messages
-
-Add a normalizer:
+Add an error normalizer:
 
 ```ts
 function toUserMessage(error: unknown): string {
@@ -711,13 +578,9 @@ function toUserMessage(error: unknown): string {
 }
 ```
 
-The raw error still hits `console.error` for server-side debugging. Only the clean string
-goes back to the client.
+The raw error is still logged via `console.error`, so operations and debugging retain the full detail. The normalizer only controls what the end user sees.
 
-### 8c. Use them
-
-In `previewPosts` and `regenerateDraft`, swap `runner.ask(prompt)` for
-`askWithRetry(runner, prompt)` and wrap the body in `try/catch`:
+Apply both helpers to `previewPosts` by replacing `runner.ask(prompt)` with `askWithRetry(runner, prompt)` and wrapping the body in `try/catch`:
 
 ```diff
 -  const runner = await ensureDraftRunner();
@@ -725,7 +588,7 @@ In `previewPosts` and `regenerateDraft`, swap `runner.ask(prompt)` for
 -  const prompt = `...`;
 -
 -  const result = (await runner.ask(prompt)) as AgentOutput;
--  ...
+-  // ...
 -  return { article: result.article, drafts };
 +  try {
 +    const runner = await ensureDraftRunner();
@@ -733,65 +596,45 @@ In `previewPosts` and `regenerateDraft`, swap `runner.ask(prompt)` for
 +    const prompt = `...`;
 +
 +    const result = (await askWithRetry(runner, prompt)) as AgentOutput;
-+    ...
++    // ...
 +    return { article: result.article, drafts };
 +  } catch (error) {
 +    throw new Error(toUserMessage(error));
 +  }
 ```
 
-Do the same in `regenerateDraft`. The full version lives in [`_final_code/src/app/actions.ts`](_final_code/src/app/actions.ts).
+Apply the same change to `regenerateDraft`. The complete final version is available in [`_final_code/src/app/actions.ts`](_final_code/src/app/actions.ts) for reference.
 
-Now hit it again while Gemini is hot. If a 503 comes through, the backoff usually clears it
-before the user ever notices. If it doesn't, they see a one-line message instead of a
-stack trace.
+With these changes in place, most transient model failures resolve silently through the retry. The remaining failures surface as a short, specific message.
 
----
+## What we built
 
-## 9. What you got
+By this point, the app does the following:
 
-Run through the app one more time. You built:
+- Generates a draft per selected platform, each within its character budget, each in a voice appropriate to the platform.
+- Supports chained-thread generation for X and Threads at a configurable length (2–10 posts).
+- Regenerates individual drafts without re-fetching the article, thanks to the cache plugin.
+- Retries flaky article fetches automatically, thanks to the built-in retry plugin.
+- Retries transient model failures at the server-action boundary, and presents clean messages to the user when retries fail.
 
-- A **single `LlmAgent`** with a Zod schema that validates every response
-- A **built-in tool** (`WebFetchTool`) that handles HTML parsing for you
-- A **custom plugin** using `beforeToolCallback` and `afterToolCallback` to cache article
-  fetches transparently
-- A **built-in plugin** (`ReflectAndRetryToolPlugin`) stacked on top for transient fetch
-  failures
-- A **server-action boundary** that retries model-level errors and maps the noise to clean
-  user messages
+The total agent code is around 200 lines. No orchestrator, no sub-agent coordination, no prompt chaining. A single well-instructed agent with one tool and the right plugins does the whole job.
 
-Total hand-written agent code: about 150 lines. No orchestrator, no sub-agents, no prompt
-chain. One well-instructed agent with the right tools and plugins does the whole job.
+## Extending the pattern
 
----
+The architecture supports several natural extensions:
 
-## 10. Where to take it next
-
-- **Add a platform.** Extend `Platform` in `src/types.ts`, add an entry to `PLATFORM_SPECS`,
-  and update the agent's platform guidelines. The UI adapts automatically.
-- **Swap the tool.** Replace `WebFetchTool` with `WebSearchTool` and take a topic instead of
-  a URL — "write social posts about X."
-- **Add a reviewer sub-agent.** A second agent that critiques drafts against a brand voice
-  before the first agent returns. ADK-TS's `SequentialAgent` wires this up in a few lines.
-- **Auto-publish.** Plug in a social-posting MCP server and add a **Publish** button that
-  calls a publisher agent per platform.
-- **Schedule.** Store drafts + a target time in a queue (BullMQ, Inngest) and publish on a
-  cron — turn the desk into an editorial calendar.
-
-The full finished implementation is in [`_final_code/`](_final_code/) on this branch.
-Master has it at the top level.
-
----
+- **Add a platform.** Extend `Platform` in `src/types.ts`, add a `PLATFORM_SPECS` entry, and update the platform guidelines in the system prompt. The UI adapts automatically.
+- **Change the input type.** Replacing `WebFetchTool` with `WebSearchTool` converts the input from a URL to a topic, enabling use cases like "draft social posts about the latest browser release."
+- **Add a reviewer agent.** A second agent that critiques drafts against a brand voice before returning them can be composed with the first using ADK-TS's `SequentialAgent`.
+- **Auto-publish.** Integrating a social-posting MCP server allows a **Publish** button to call a publisher agent; each platform's posting capability becomes an additional tool.
+- **Schedule drafts.** A queue such as BullMQ or Inngest can hold drafts until a target publish time, turning the Draft Desk into a complete editorial workflow.
 
 ## Resources
 
-- [ADK-TS Documentation](https://adk.iqai.com/)
-- [Built-in Tools Reference](https://adk.iqai.com/docs/framework/tools/built-in-tools)
-- [Plugins Reference](https://adk.iqai.com/docs/framework/plugins)
-- [ADK-TS Samples Repository](https://github.com/IQAIcom/adk-ts-samples)
+- [ADK-TS documentation](https://adk.iqai.com/)
+- [Built-in tools](https://adk.iqai.com/docs/framework/tools/built-in-tools)
+- [Plugins reference](https://adk.iqai.com/docs/framework/plugins)
+- [Google AI Studio](https://aistudio.google.com/app/api-keys)
 - [Next.js Server Actions](https://nextjs.org/docs/app/building-your-application/data-fetching/server-actions-and-mutations)
-- [Google AI Studio Keys](https://aistudio.google.com/app/api-keys)
 
-Built something with this pattern? Share it in the
-[ADK-TS community](https://t.me/+Z37x8uf6DLE3ZTQ8).
+Developers building with this pattern are welcome to share their implementations in the [ADK-TS community](https://t.me/+Z37x8uf6DLE3ZTQ8).
