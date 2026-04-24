@@ -106,14 +106,13 @@ function buildDraft(
 
 	if (wantsThread && hasSegments && segments) {
 		const joined = segments.join("\n\n");
-		const maxLen = segments.reduce((m, s) => Math.max(m, s.length), 0);
 		return {
 			platform,
 			content: joined,
 			segments,
 			hashtags,
 			charLimit: spec.charLimit,
-			charCount: maxLen,
+			charCount: 0, // threads track counts per segment in the UI
 		};
 	}
 
