@@ -1,18 +1,18 @@
 # Build an AI agent that turns blog posts into social drafts
 
-Every new blog post means rewriting the same idea for social media — a punchy X post, a polished LinkedIn update, maybe an X thread. Each platform has its own voice and character limits, so drafts can't just be copy-pasted. It's repetitive work, and an ideal fit for an LLM.
+Every new blog post means rewriting the same idea for social media — a punchy X post, a polished LinkedIn update, maybe an X thread. And each platform has its own voice and character limits, so drafts can't just be copy-pasted. It's repetitive work, but an ideal fit for an LLM.
 
 In this tutorial we'll build an agent that does exactly that: reads a blog post and produces platform-tailored drafts in one pass. It becomes the backend of a small Next.js app where you paste a URL, pick a tone, and get a draft per platform.
 
-We'll use ADK-TS — a TypeScript framework for building AI agents — and work through its built-in web-fetching tool, structured output with a Zod schema, and its plugin system, which we'll use to add both caching and retry logic.
+We'll use ADK-TS, a TypeScript framework for building AI agents. Three of its features do the heavy lifting: a built-in web-fetching tool that reads the article, structured output backed by a Zod schema, and a plugin system that we'll use to add both caching and retry logic.
 
-You do not need any prior AI knowledge to follow along with the article. I have already prepared the UI for this project in the [starter branch](https://github.com/IQAIcom/adk-ts-samples/tree/starter/apps/social-media-drafting-agent) of the GitHub repo so we can focus on the agent. You can also find the final version of the project on the `main` branch for reference. Here's what we're building:
+You do not need any prior AI knowledge to follow along with the article and I have already prepared the UI for this project in this Github repo's [starter branch](https://github.com/IQAIcom/adk-ts-samples/tree/starter/apps/social-media-drafting-agent) so we can focus on the agent building. You can also find the final version of the project on the `main` branch for reference. Here's what we're building:
 
 ![The Draft Desk — final app screenshot](./screenshots/finished.png)
 
 ## What we're building
 
-The app does three things: it takes a blog URL and some preferences, reads the article, and produces one draft per requested platform. For X and Threads we also support a **thread** mode that generates a chained 2–10 post thread instead of a single post while LinkedIn is always a single post.
+The draft app does three things: it takes a blog URL and some preferences, fetches and reads the article, then produces one draft per requested platform. For X and Threads it also supports a **thread** mode that generates a chained 2–10 post thread instead of a single post while LinkedIn is always a single post.
 
 The architecture for this demo is deliberately small:
 
@@ -48,7 +48,7 @@ cp .env.example .env
 pnpm dev
 ```
 
-Tou should see the UI at `http://localhost:3000` with a form and a **Draft** button, but no drafts will be generated yet. Clcicking the button shows a stack trace error because the agent isn't implemented yet:
+You should see the UI at `http://localhost:3000` with a form and a **Draft** button, but no drafts will be generated yet. Clicking the button shows a stack trace error because the agent isn't implemented yet:
 
 ```text
 Not implemented yet — build the agent at src/agents/draft-generator/agent.ts and wire it up here.
@@ -58,19 +58,19 @@ That is the starting point.
 
 ## Step 1: Build the agent
 
-Before we write any code, let's review the core concepts.
+Before we write any code, let's understand what an agent is in ADK-TS and what we need for this use case.
 
-An **agent** is an LLM paired with a set of tools it can call and a schema its output must conform to. When the agent runs, it receives a prompt, may call tools, and returns a response. If you're coming from the raw OpenAI SDK or ChatGPT, the new concepts are **tools** (functions the model can invoke) and **structured output** (declaring the expected shape of a response and letting the framework enforce it).
+An **agent** is an LLM paired with a set of tools it can call and a schema its output must conform to. When the agent runs, it receives a prompt, may call tools, and returns a response. If you're coming from a traditional programming background, you can think of the agent as a function: it takes an input (the prompt), does some internal work (tool calls), and produces an output (the response). The difference is that the "function body" is written in natural language and executed by an LLM, and the tools are external capabilities the model can invoke.
 
-Our agent needs two capabilities: read a URL, and return structured JSON containing a title, the article URL, and an array of drafts. ADK-TS gives us both.
+Our agent needs two capabilities: read a URL, and return structured JSON containing a title, the article URL, and an array of drafts. ADK-TS gives us both. We can use the built-in `WebFetchTool` to read and parse the article, and we can define a Zod schema for the output using `withOutputSchema`.
 
-Create the folder:
+Let's start building. Create a new file for the agent:
 
 ```bash
 mkdir -p src/agents/draft-generator
 ```
 
-Then create `agent.ts` inside it:
+Then create `agent.ts` inside it and add the following code:
 
 ```ts
 import { AgentBuilder, WebFetchTool } from "@iqai/adk";
@@ -93,36 +93,32 @@ export const postDraftsSchema = z.object({
 });
 
 export type PostDraftsOutput = z.infer<typeof postDraftsSchema>;
+```
 
+Here we define the output schema for the agent. The `article` block contains the URL and title of the fetched article. The `drafts` array contains one object per generated draft, each with a `platform`, `content`, optional `segments` (for threads), and an array of `hashtags`. The `platform` field is constrained to the three platforms we support, preventing the model from inventing unsupported platforms.
+
+Two details in the schema itself are worth noting:
+
+The `platform: z.enum([...])` constraint prevents the model from inventing platforms. If it returns `"bluesky"`, validation fails before the server action receives the result.
+
+The optional `segments` field lets one schema cover both draft shapes. Single-post drafts have `content` only; chained threads have both `content` and `segments`. No union type, no discriminator — the optional field carries both cases.
+
+Next we define the agent itself:
+
+```ts
 export const getDraftGenerator = async () => {
   const { runner } = await AgentBuilder.create("draft_generator")
     .withDescription(
       "Fetches a blog post and generates platform-optimized social media drafts. Returns structured JSON.",
     )
     .withInstruction(
-      `You are a social media content specialist. Given a blog post URL, a tone, and a list of target platforms with their hard character limits and formats:
+      `You are a social media content specialist. Given a blog post URL, a tone, and a list of target platforms:
 
 1. Use the web_fetch tool to read the article. Record its title.
-2. For EACH requested platform, generate exactly ONE draft tailored to that platform.
-
-   Platform writing guidelines:
-   - **x** (post): Single punchy post with hook, casual voice, 2-3 hashtags. Fit the 280-char limit.
-   - **x** (thread): A chained thread of exactly the requested number of posts. Each post MUST be <=280 characters on its own. Post 1 is the hook. Middle posts develop the idea. Final post ends with a CTA phrase like "Full post ↓" or "Read more ↓". Return the full array in \`segments\` AND a plain \`content\` string with the segments joined by two newlines.
-   - **threads** (post): Single conversational, community-friendly post. 1-3 hashtags. Fit the 500-char limit.
-   - **threads** (thread): A chained thread of exactly the requested number of posts. Each post MUST be <=500 characters on its own. Return the full array in \`segments\` AND a joined \`content\` string.
-   - **linkedin**: Polished, authoritative single post with a clear takeaway. 3-5 hashtags at the end. (LinkedIn is always a single post — ignore thread settings.)
-
-3. URL HANDLING — IMPORTANT: Do NOT include the literal article URL in the draft content or segments. The app appends the URL on copy for single posts. CTA phrases like "Read more ↓" or "Full post here" are encouraged where they fit naturally.
-
-4. Character limits in the prompt are HARD — never exceed them. For thread format, each segment must independently fit its platform's per-post limit. Trim if close.
-
-5. When asked for a thread of N posts, return EXACTLY N segments — not fewer, not more.
-
-6. Apply the requested tone:
-   - **auto**: Pick a tone that fits each platform (punchy for X, conversational for Threads, professional for LinkedIn).
-   - **professional / casual / educational / punchy**: Apply uniformly.
-
-7. Return ONLY valid JSON matching the output schema. No markdown fences. The \`article\` block must include the URL and the fetched title. Each draft must include \`content\`; threads in thread format must ALSO include \`segments\`. Do NOT include \`segments\` for single-post formats or for LinkedIn.`,
+2. For each platform, generate one draft tailored to its voice and hard character limit.
+3. Never include the article URL in draft content — the app appends it on copy.
+4. Apply the requested tone. Return ONLY valid JSON matching the output schema, no markdown fences.`,
+      // The full instruction is in the main branch: src/agents/draft-generator/agent.ts
     )
     .withModel(env.LLM_MODEL)
     .withTools(new WebFetchTool())
@@ -133,44 +129,24 @@ export const getDraftGenerator = async () => {
 };
 ```
 
-Most of the file is prompt text. We define the actual agent in the `AgentBuilder` chain at the bottom. Walking through it:
+The `getDraftGenerator` function builds and returns the agent's runner. The runner is the interface for interacting with the agent. when we call `runner.ask(prompt)`, the prompt is sent to the model, tools are called as needed, and the response is validated against the schema.
 
-`AgentBuilder.create("draft_generator")` begins a new agent definition. The string is the agent's name, used for logging.
+We also provide an agent description and a detailed system instruction to guide the model's behavior. In this type of agent, the instruction typically covers four things:
 
-`.withDescription(...)` is a short summary of what the agent does. It matters most in multi-agent setups where an orchestrator needs to pick between sub-agents.
+- **The role and task** — who the model is acting as and what it needs to do (fetch an article, generate one draft per requested platform).
+- **Per-platform rules** — voice, format, and hard character limits for each platform. Without explicit numbers, models tend to produce output that silently misses limits — a 320-char "tweet," for example.
+- **Output constraints** — what to include or omit, like not repeating the article URL (the app appends it on copy, so including it in both places produces duplicates).
+- **Schema alignment** — restating the output shape in plain language alongside the Zod schema. The schema alone usually suffices, but redundant instruction reduces retry rates noticeably.
 
-`.withInstruction(...)` is the system prompt. This is the most consequential line in the file, and a few details in this one are worth highlighting:
+We set the LLM model with `.withModel(env.LLM_MODEL)`. The default is `gemini-2.5-flash`, which is fast and inexpensive. But you can swap in any model supported by ADK-TS, including Gemini Pro or Claude 2.
 
-- It lists per-platform character limits explicitly. Without concrete numbers, models tend to produce plausible-sounding output that silently misses the limit — a 320-char "tweet," for example. Naming the number keeps the model honest.
-- It instructs the model not to include the article URL in draft text. The client appends the URL when the user copies a draft, so including it in both places produces duplicates.
-- It states the output-shape rules in plain language alongside the schema. The schema alone usually suffices, but redundant instruction reduces retry rates noticeably.
+The `.withTools(new WebFetchTool())` grants the agent access to ADK-TS's built-in `WebFetchTool`. It handles fetching a URL, stripping boilerplate (navigation, ads, cookie banners), and returning clean article text. Without it, it would be up to the model to fetch and parse the article, which is unreliable and would increase latency.
 
-`.withModel(env.LLM_MODEL)` selects the model. The default is `gemini-2.5-flash`, which is fast and inexpensive. Setting `LLM_MODEL=gemini-2.5-pro` in `.env` produces nicer prose at the cost of latency.
+`.withOutputSchema(postDraftsSchema)` registers the Zod schema. When a schema is registered, the framework validates every response against it. If the model returns invalid JSON, or if the JSON doesn't match the schema, the framework throws a validation error instead of passing the response to the server action. This ensures that the server action always receives data in the expected shape.
 
-`.withTools(new WebFetchTool())` grants the agent access to ADK-TS's built-in `WebFetchTool`. It handles fetching a URL, stripping boilerplate (navigation, ads, cookie banners), and returning clean article text. Without it, the equivalent work means implementing or integrating a Readability-style parser.
+With the agent defined, we can move on to wiring it up to the UI.
 
-`.withOutputSchema(postDraftsSchema)` registers the Zod schema. When a schema is registered, `runner.ask()` returns output that is already parsed and validated. If the model produces anything that does not conform, the call throws. This eliminates the typical `try { JSON.parse(response) } catch {...}` pattern.
-
-Two details in the schema itself are worth noting:
-
-```ts
-drafts: z.array(
-  z.object({
-    platform: z.enum(["linkedin", "x", "threads"]),
-    content: z.string(),
-    segments: z.array(z.string()).optional(),
-    hashtags: z.array(z.string()),
-  }),
-),
-```
-
-The `platform: z.enum([...])` constraint prevents the model from inventing platforms. If it returns `"bluesky"`, validation fails before the server action receives the result.
-
-The optional `segments` field lets one schema cover both draft shapes. Single-post drafts have `content` only; chained threads have both `content` and `segments`. No union type, no discriminator — the optional field carries both cases.
-
-That completes the agent definition. Saving the file makes no functional change yet because nothing is calling it. The next step wires it up.
-
-## Step 2: Wire it to the UI
+## Step 2: Wire the agent into Server Actions
 
 The UI imports `previewPosts` and `regenerateDraft` from the Server Actions file. If you're new to Next.js Server Actions: they're functions marked with a `"use server"` directive that Next.js makes callable from client components as if they were local async functions. The framework handles the RPC for you.
 
