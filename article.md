@@ -1,8 +1,8 @@
-# Extending AI agents with plugins and callbacks in ADK-TS
+# How to extend TypeScript AI agents with plugins and callbacks in ADK-TS
 
 Getting an ADK-TS agent up and running is easy: a tool, a system prompt, a schema, and you are done. But shipping it to real users is the hard part. The same external call may fire five times in a row because someone kept clicking a button. An upstream API rate-limits you mid-request. A third-party service returns a 502 during a demo. None of this is really the agent's fault, but it all ends up being the agent's problem.
 
-This is what **plugins** and **lifecycle callbacks** in ADK-TS are for. They let you layer caching, retries, metrics, and error handling around an agent without touching the agent itself.
+This is what **plugins** and **lifecycle callbacks** in ADK-TS are for. They let you layer caching, retries, metrics, and error handling around a TypeScript AI agent without touching the agent itself.
 
 This article walks through three patterns you'll reach for on pretty much every ADK-TS agent:
 
@@ -10,9 +10,9 @@ This article walks through three patterns you'll reach for on pretty much every 
 2. Composing multiple plugins so they stack cleanly.
 3. Handling model-level failures at the Server Action boundary, where plugins can't reach.
 
-We'll work through all three in a small Next.js app called **The Draft Desk**, an AI-powered tool that turns a blog post into platform-tailored social drafts. The app itself is small, but what matters are the patterns. This article assumes you've already built a basic ADK-TS agent before — if you haven't, our [first-agent guide](https://blog.iqai.com/build-ai-agent-in-typescript-with-adk-ts/) is a good place to start.
+We'll work through all three in a small Next.js app called **The Draft Desk**, an AI-powered tool that turns a blog post into platform-tailored social drafts. The app itself is small, but what matters are the patterns. This article assumes you've already built a basic ADK-TS agent before — if you haven't, [How to Build Your First AI Agent in TypeScript with ADK-TS](https://blog.iqai.com/build-ai-agent-in-typescript-with-adk-ts/) is a good place to start. If you want a broader look at what the framework offers before diving in, [Introducing the Agent Development Kit for TypeScript](https://blog.iqai.com/introducing-the-agent-development-kit-adk-for-typescript/) has you covered.
 
-## The example app
+## What we're building: The Draft Desk
 
 The Draft Desk takes a blog URL, a tone, and a set of platforms, fetches the article, and writes one platform-tailored draft per selection. For X and Threads it also supports a **thread** mode — a chained 2–10 post thread — while LinkedIn is always a single post.
 
@@ -26,7 +26,7 @@ No orchestrator, no sub-agents, no prompt chain. Just one agent, doing one job. 
 
 ![The Draft Desk — final app screenshot](./screenshots/finished.png)
 
-## Grabbing the starter code for the article
+## Setting up the starter project
 
 Clone the repo and switch to the starter branch:
 
@@ -54,7 +54,7 @@ pnpm dev
 
 At `http://localhost:3000` the UI loads, but clicking **Draft** throws an error. This is expected as the agent isn't built yet. We will implement the agent in the next section, then come back to the Server Actions and fill those in.
 
-## Setup: the baseline agent
+## Building the baseline agent
 
 Before we can extend anything, we need an agent to extend. Create the agent file:
 
@@ -101,7 +101,6 @@ export const getDraftGenerator = async () => {
       "Fetches a blog post and generates platform-optimized social media drafts. Returns structured JSON.",
     )
     .withInstruction(
-      // The full system prompt is in the main branch in /src/agents/draft-generator/agent.ts
       `You are a social media content specialist. Use the web_fetch tool to read the article, then generate one draft per requested platform, respecting hard per-platform char limits. Return ONLY valid JSON matching the output schema.`,
     )
     .withModel(env.LLM_MODEL)
@@ -351,7 +350,7 @@ Save the file, restart the dev server, and head to `http://localhost:3000`. Past
 
 Before moving on, run a quick test. Click **Rewrite** on one of the drafts, wait for it, click it again, and again. Every click takes roughly the same 4–8 seconds as the first generation. That's our baseline — keep the number in mind. In the next section we'll add a plugin that makes repeated rewrites feel near-instant, and we'll compare against this.
 
-## Pattern 1: Writing a plugin with lifecycle callbacks
+## Pattern 1: Write a custom TypeScript plugin with tool lifecycle callbacks
 
 Now, let's talk about the problem. The `web_fetch` tool is called on every generation, including regenerations. Every `web_fetch` call re-downloads the article. Realistically, nothing about the source has changed between the clicks, so we're paying the network cost over and over for no reason.
 
@@ -456,13 +455,15 @@ This runs after a tool call returns successfully. Same filter for the `web_fetch
 
 Both methods go inside the `WebFetchCachePlugin` class from the first snippet.
 
-Three things here generalize to any plugin you write:
+Three things here generalize to any TypeScript agent plugin you write:
 
 **The callback contract.** Returning `undefined` from `beforeToolCallback` means "let the tool run normally." Returning a value means "skip the tool, give the agent this instead." That single control point is what makes short-circuiting work.
 
 **Filter by tool name.** The `if (params.tool.name !== "web_fetch") return undefined;` guard matters because plugins are global — every tool call the agent makes fires every plugin's callbacks. Without the filter, a cache keyed by URL would try to intercept tools that don't even take a URL.
 
 **Plugin state lives on the instance.** The cache is a `Map` on the plugin class. Because the plugin is attached to a singleton runner — which is why we made it a singleton earlier — that cache survives across Server Action calls for the lifetime of the Node process.
+
+> If you want to see `beforeToolCallback` and `afterToolCallback` used for a different purpose — enforcing hard rate limits on a tool rather than caching — we cover that approach in [Build a Research Assistant AI Agent with TypeScript and ADK-TS (Part 2)](https://blog.iqai.com/research-assistant-ai-agent-typescript-adk-ts-part-2/).
 
 Now wire the plugin into the agent. Open `agent.ts` and add the import at the top, along with a module-level instance of the plugin:
 
@@ -491,9 +492,9 @@ export const getDraftGenerator = async () => {
 
 Now, restart the dev server. The first draft still takes 4–8 seconds, but every **Rewrite** after that comes back in about a second. The LLM is still writing fresh text — that's the point of rewrite — but the fetch is gone for the rest of the session. And the server logs confirm it: one `web_fetch` call on the first generation, none after.
 
-> **Key takeaway.** `beforeToolCallback` + `afterToolCallback` let you sit between the agent and any tool without changing either one. Caching is one use; auth injection, rate limiting, metrics, redaction, and test mocking are all variations on the same pattern.
+> **Key takeaway.** `beforeToolCallback` + `afterToolCallback` let you intercept, substitute, or observe tool calls without touching the agent or the tool. Caching is one use; auth injection, rate limiting, metrics, redaction, and test mocking are all variations on the same pattern.
 
-## Pattern 2: Composing plugins
+## Pattern 2: Compose plugins for layered agent behavior
 
 The internet is flaky. Third-party APIs return 502s, connections drop mid-request, upstream services rate-limit you without warning. Right now, a single transient tool failure propagates all the way to the user as a stack trace.
 
@@ -535,7 +536,7 @@ This is the payoff of composing plugins: each one does a single thing, you stack
 
 > **Key takeaway.** Plugins compose. The order you pass them to `.withPlugins(...)` is the order they run. Build layered behavior out of small, single-purpose plugins — cache, retry, metrics, logging — instead of mixing concerns in one place.
 
-## Pattern 3: Handling failures beyond the plugin system
+## Pattern 3: Handle model failures at the Server Action boundary
 
 Let's look at this error from a real session:
 
@@ -613,7 +614,7 @@ function toUserMessage(error: unknown): string {
 
 This function looks for known patterns in the raw error message and returns a clean, user-friendly message. It also logs the full error for debugging. You can customize the patterns and messages based on the kinds of errors you see in practice.
 
-Apply both to helpers to  `previewPosts`: swap `runner.ask(prompt)` for `askWithRetry(runner, prompt)` and wrap the body in `try/catch`. The shape looks like this:
+Apply both helpers to `previewPosts`: swap `runner.ask(prompt)` for `askWithRetry(runner, prompt)` and wrap the body in `try/catch`. The shape looks like this:
 
 ```ts
 export async function previewPosts(params: {
@@ -653,7 +654,7 @@ Do the same for `regenerateDraft` — wrap its body in `try/catch` and swap `run
 
 > **Key takeaway.** Plugins handle tool-level failures. Model-level failures (overload, rate limits, schema violations) and the user-facing messaging that goes with them belong at the Server Action boundary. Knowing which layer owns which kind of failure saves you from wondering why a retry plugin isn't catching a 503.
 
-## Three patterns, portable to any agent
+## Summary: three patterns for any production TypeScript agent
 
 If you take anything from this article, it's these three:
 
@@ -669,9 +670,9 @@ The Draft Desk is one example. These same patterns show up almost anywhere:
 - A data-pipeline agent that retries transient database timeouts or webhook 5xxs automatically.
 - Any agent where you want observability, resilience, or feature-flagged behavior without rewriting the agent itself.
 
-## Extending the example
+## Where to take it next
 
-Here are a few ideas for how to take the Draft Desk further, using the same patterns:
+Here are a few ideas for how to extend The Draft Desk further, using the same patterns:
 
 - **Add a platform.** Extend `Platform` in `src/types.ts`, add a `PLATFORM_SPECS` entry, and update the platform rules in the system prompt. The UI adapts automatically.
 - **Change the input.** Swap `WebFetchTool` for `WebSearchTool` and the input becomes a topic instead of a URL — "draft social posts about the latest browser release."
@@ -684,6 +685,9 @@ Here are a few ideas for how to take the Draft Desk further, using the same patt
 - [ADK-TS documentation](https://adk.iqai.com/)
 - [Plugins reference](https://adk.iqai.com/docs/framework/plugins)
 - [Built-in tools](https://adk.iqai.com/docs/framework/tools/built-in-tools)
+- [How to Build Your First AI Agent in TypeScript with ADK-TS](https://blog.iqai.com/build-ai-agent-in-typescript-with-adk-ts/)
+- [Build a Research Assistant AI Agent with TypeScript and ADK-TS (Part 1)](https://blog.iqai.com/build-research-assistant-agent-typescript-adk-ts-part-1/)
+- [Build a Research Assistant AI Agent with TypeScript and ADK-TS (Part 2)](https://blog.iqai.com/research-assistant-ai-agent-typescript-adk-ts-part-2/)
 - [Google AI Studio](https://aistudio.google.com/app/api-keys)
 - [Next.js Server Actions](https://nextjs.org/docs/app/building-your-application/data-fetching/server-actions-and-mutations)
 
