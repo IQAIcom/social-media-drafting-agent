@@ -261,8 +261,7 @@ export const Drafter = () => {
 				if (d.platform !== platform || !d.segments) return d;
 				const segments = d.segments.map((s, i) => (i === index ? value : s));
 				const content = segments.join("\n\n");
-				const charCount = segments.reduce((m, s) => Math.max(m, s.length), 0);
-				return { ...d, segments, content, charCount };
+				return { ...d, segments, content };
 			}),
 		);
 	};
@@ -518,24 +517,15 @@ export const Drafter = () => {
 										key={draft.platform}
 										className="py-8 border-t border-rule"
 									>
-										<header className="mb-4 flex items-baseline justify-between gap-3 flex-wrap">
-											<div className="flex items-baseline gap-3">
-												<Icon className="w-4 h-4 self-center" />
-												<h3 className="font-display text-xl tracking-tight">
-													{spec.label}
-												</h3>
-												<span className="text-[11px] uppercase tracking-[0.22em] text-ink-muted italic">
-													{isThread
-														? `thread · ${draft.segments?.length} posts`
-														: "post"}
-												</span>
-											</div>
-											<span
-												className={`font-mono text-xs ${
-													over ? "text-accent" : "text-ink-muted"
-												}`}
-											>
-												{draft.charCount} / {draft.charLimit}
+										<header className="mb-4 flex items-baseline gap-3 flex-wrap">
+											<Icon className="w-4 h-4 self-center" />
+											<h3 className="font-display text-xl tracking-tight">
+												{spec.label}
+											</h3>
+											<span className="text-[11px] uppercase tracking-[0.22em] text-ink-muted italic">
+												{isThread
+													? `thread · ${draft.segments?.length} posts`
+													: "post"}
 											</span>
 										</header>
 
@@ -555,18 +545,9 @@ export const Drafter = () => {
 															>
 																{i + 1}
 															</span>
-															<div className="flex items-center justify-between mb-1">
-																<span className={LABEL}>
-																	{i + 1} of {draft.segments?.length}
-																</span>
-																<span
-																	className={`font-mono text-[11px] ${
-																		segOver ? "text-accent" : "text-ink-muted"
-																	}`}
-																>
-																	{segment.length} / {draft.charLimit}
-																</span>
-															</div>
+															<span className={`${LABEL} block mb-1`}>
+																{i + 1} of {draft.segments?.length}
+															</span>
 															<textarea
 																value={segment}
 																onChange={(e) =>
@@ -579,19 +560,39 @@ export const Drafter = () => {
 																rows={3}
 																className={`${TEXTAREA} border-b border-rule focus:border-ink`}
 															/>
+															<div className="mt-1 flex justify-end">
+																<span
+																	className={`font-mono text-[11px] ${
+																		segOver ? "text-accent" : "text-ink-muted"
+																	}`}
+																>
+																	{segment.length} / {draft.charLimit}
+																</span>
+															</div>
 														</li>
 													);
 												})}
 											</ol>
 										) : (
-											<textarea
-												value={draft.content}
-												onChange={(e) =>
-													updateDraftContent(draft.platform, e.target.value)
-												}
-												rows={draft.platform === "linkedin" ? 10 : 5}
-												className={`${TEXTAREA} border-b border-rule focus:border-ink`}
-											/>
+											<>
+												<textarea
+													value={draft.content}
+													onChange={(e) =>
+														updateDraftContent(draft.platform, e.target.value)
+													}
+													rows={draft.platform === "linkedin" ? 10 : 5}
+													className={`${TEXTAREA} border-b border-rule focus:border-ink`}
+												/>
+												<div className="mt-1 flex justify-end">
+													<span
+														className={`font-mono text-[11px] ${
+															over ? "text-accent" : "text-ink-muted"
+														}`}
+													>
+														{draft.charCount} / {draft.charLimit}
+													</span>
+												</div>
+											</>
 										)}
 
 										{draft.hashtags.length > 0 && (

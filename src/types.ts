@@ -58,7 +58,10 @@ export type PlatformDraft = {
 	segments?: string[];
 	hashtags: string[];
 	charLimit: number;
-	/** For single posts: content length. For threads: longest segment length. */
+	/**
+	 * Length of the draft. Only meaningful for single posts — threads have
+	 * their own per-segment count and this stays 0 for them.
+	 */
 	charCount: number;
 };
 
