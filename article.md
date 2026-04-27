@@ -119,7 +119,7 @@ Three things are doing the work in the builder chain:
 - `withOutputSchema(postDraftsSchema)` validates every response against the Zod schema. Anything non-conforming throws before it reaches your code.
 - `withInstruction(...)` is the system prompt. The real version in the main branch spells out per-platform char limits, URL-handling rules, and thread-vs-post behavior — concrete numbers beat vague guidance every time.
 
-Now wire the agent to the Server Actions. Open `src/app/actions.ts` and replace the stubs. Start with the `"use server"` directive and the imports:
+Now wire the agent to the Server Actions. Open `src/app/actions.ts` and replace the current stubs. Start with the `"use server"` directive and the imports:
 
 ```ts
 "use server";
@@ -202,9 +202,9 @@ function buildDraft(
 }
 ```
 
-For threads, we join segments into `content`, keep the segments array for the UI, and leave `charCount` at 0 — each segment has its own per-post limit, so an aggregate count doesn't mean much. For single posts, `content` is used as-is and `charCount` is its length. The UI renders the count below each segment (or below the single-post textarea).
+For threads, we join segments into `content`, keep the segments array for the UI, and leave `charCount` at 0 — each segment has its own per-post limit.
 
-Two more helpers for building the per-request part of the prompt:
+Two helpers that build the per-request section of the prompt we'll send to the agent:
 
 ```ts
 function formatLabel(
@@ -232,7 +232,14 @@ function buildPlatformBrief(
 }
 ```
 
-These produce a list of requested platforms, each with its format and char limit. The output gets injected into the user prompt on every call. The system prompt (inside `agent.ts`) stays constant; only the variables that actually change per request go here.
+`buildPlatformBrief` calls `formatLabel` once per selected platform and joins the results into a block of text. For a request with LinkedIn and X-as-a-thread-of-4, the output looks like:
+
+```text
+- linkedin — LinkedIn — format: single post (<=3000 chars)
+- x — X (Twitter) — format: thread of 4 posts (each <=280 chars)
+```
+
+That block gets interpolated into the user prompt in `previewPosts` before we call the agent. The system prompt (inside `agent.ts`) stays constant; the parts that change per request — like this brief — go into the user prompt.
 
 One type declaration that mirrors what the agent returns:
 
@@ -340,13 +347,13 @@ Same shape as `previewPosts` — get runner, build prompt, call agent, reshape �
 
 One pattern worth naming before we move on: **prompt composition**. The system prompt (in `agent.ts`) describes the agent's stable behavior. The user prompt in these actions carries the parts that change per call — char limits, thread length, platform selection. That way one agent handles many kinds of requests without being rebuilt for each one.
 
-Save the file, restart the dev server, and click **Draft**. After 4–8 seconds the drafts show up. The agent works.
+Save the file, restart the dev server, and head to `http://localhost:3000`. Paste a blog URL, pick a tone and some platforms, and click **Draft**. After 4–8 seconds the drafts show up. The agent works.
 
-Now click **Rewrite** a few times. Every click takes the same 4–8 seconds — and that's the first real problem the plugin layer solves.
+Before moving on, run a quick test. Click **Rewrite** on one of the drafts, wait for it, click it again, and again. Every click takes roughly the same 4–8 seconds as the first generation. That's our baseline — keep the number in mind. In the next section we'll add a plugin that makes repeated rewrites feel near-instant, and we'll compare against this.
 
 ## Pattern 1: Writing a plugin with lifecycle callbacks
 
-Every `web_fetch` call re-downloads the article. Nothing about the source has changed between clicks, so we're paying the network cost over and over for no reason.
+Now, let's talk about the problem. The `web_fetch` tool is called on every generation, including regenerations. Every `web_fetch` call re-downloads the article. Realistically, nothing about the source has changed between the clicks, so we're paying the network cost over and over for no reason.
 
 A tempting fix is to cache the article text inside the Server Action and pass it through to the agent manually. That works, but it gives the action a second job — it's no longer just a request handler, it's also a cache manager. And the next time you want to add retries, or logging, or metrics, those end up in the action too.
 
@@ -418,7 +425,7 @@ async beforeToolCallback(params: {
 }
 ```
 
-This runs before any tool call. First it filters to `web_fetch` — plugins see every tool call, and this one only cares about fetches. Then it looks up the URL in the cache. On a fresh hit, it returns the cached result, and the framework short-circuits the tool: the agent gets the result as if `web_fetch` had just run. On a miss (or no cache entry), it returns `undefined`, which tells the framework to run the tool normally.
+This runs before any tool call. First it filters to `web_fetch` — plugins see every tool call, and this callback only cares about fetches. Then it looks up the URL in the cache. On a fresh hit, it returns the cached result, and the framework short-circuits the tool: the agent gets the result as if `web_fetch` had just run. On a miss (or no cache entry), it returns `undefined`, which tells the framework to run the tool normally.
 
 Then `afterToolCallback`, which stores successful results:
 
@@ -445,7 +452,7 @@ async afterToolCallback(params: {
 }
 ```
 
-This runs after a tool call returns successfully. Same filter for `web_fetch`. If the result isn't an explicit failure, we store it in the cache with a fresh expiry. Returning `undefined` passes the result through unchanged — we're only observing, not transforming.
+This runs after a tool call returns successfully. Same filter for the `web_fetch` tool. If the result isn't an explicit failure, we store it in the cache with a fresh expiry. Returning `undefined` passes the result through unchanged — we're only observing, not transforming.
 
 Both methods go inside the `WebFetchCachePlugin` class from the first snippet.
 
@@ -482,7 +489,7 @@ export const getDraftGenerator = async () => {
 };
 ```
 
-Restart the dev server. The first draft still takes 4–8 seconds, but every **Rewrite** after that comes back in about a second. The LLM is still writing fresh text — that's the point of rewrite — but the fetch is gone for the rest of the session. Server logs confirm it: one `web_fetch` call on the first generation, none after.
+Now, restart the dev server. The first draft still takes 4–8 seconds, but every **Rewrite** after that comes back in about a second. The LLM is still writing fresh text — that's the point of rewrite — but the fetch is gone for the rest of the session. And the server logs confirm it: one `web_fetch` call on the first generation, none after.
 
 > **Key takeaway.** `beforeToolCallback` + `afterToolCallback` let you sit between the agent and any tool without changing either one. Caching is one use; auth injection, rate limiting, metrics, redaction, and test mocking are all variations on the same pattern.
 
@@ -495,8 +502,8 @@ Rather than writing your own retry logic, stack a second plugin on top of the ca
 ```ts
 import {
   AgentBuilder,
-  ReflectAndRetryToolPlugin,
   WebFetchTool,
+  ReflectAndRetryToolPlugin,
 } from "@iqai/adk";
 ```
 
@@ -520,7 +527,7 @@ Then pass both plugins to `.withPlugins(...)` in the builder chain:
 
 `ReflectAndRetryToolPlugin` retries a failed tool call up to `maxRetries` times. The "reflect" part means it tells the model what went wrong between attempts, so the model can adjust — try a different URL shape, drop a broken header — instead of repeating the same failing call.
 
-`throwExceptionIfRetryExceeded: true` matters. Without it, exhausted retries silently return an empty result. Empty would pass schema validation with garbage inside and look like a successful generation. With it, the failure surfaces as a real error and the next layer (coming up in Pattern 3) can deal with it.
+`throwExceptionIfRetryExceeded: true` matters. Without it, exhausted retries silently return an empty result. Empty would pass schema validation with garbage inside and look like a successful generation. With it set to true, the failure surfaces as a real error and the next layer (coming up in Pattern 3) can deal with it.
 
 **Plugin order matters.** `.withPlugins(webFetchCachePlugin, reflectRetryPlugin)` runs the cache first, retry second. Cache hits short-circuit before retry ever sees the call. On a miss, both plugins participate in the usual order. Flip the order and retry would run before the cache could check — still correct, but wasted cycles on every cache hit.
 
@@ -530,16 +537,16 @@ This is the payoff of composing plugins: each one does a single thing, you stack
 
 ## Pattern 3: Handling failures beyond the plugin system
 
-Here's an error from a real session shortly after deployment:
+Let's look at this error from a real session:
 
 ```text
 Failed to parse and validate LLM output against the schema.
 Raw output: Error: {"error":{"code":503,"message":"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.","status":"UNAVAILABLE"}}
 ```
 
-Gemini was overloaded. The SDK returned the 503 as the model's text output, and schema validation then failed because the error string wasn't valid JSON. The user saw a 400-character stack trace.
+This error came from a 503 response by the model's API. The retry plugin only helps with tool calls, so it didn't catch this. The failure bubbled up to the Server Action, which threw it as an error, and Next.js turned it into a stack trace for the user. Not great.
 
-Important note: **`ReflectAndRetryToolPlugin` does not help here.** That plugin wraps tool calls. The 503 didn't come from a tool — it came from the model's own response, which from the agent's perspective is the output channel, not a callable. There's no callback for it.
+**`ReflectAndRetryToolPlugin`** didn't help here. It's designed to retry tool calls, not the model call itself. When the model's API returns a 503, the plugin has no opportunity to step in because the failure happens outside the scope of any tool call.
 
 When a failure isn't something plugins can see, you handle it one layer up — at the Server Action boundary.
 
@@ -571,9 +578,9 @@ async function askWithRetry(
 }
 ```
 
-Backoff is 500ms, 1s, 2s. The regex only catches errors that are actually likely to clear — 503s, 429s, connection resets, timeouts. Retrying on a schema violation or a missing API key would just waste time before the same failure hits again.
+This helper retries the entire `runner.ask(prompt)` call, which includes the model response. It looks for transient patterns in the error message — 503s, rate limits, timeouts, connection resets — and retries up to `maxRetries` times with exponential backoff. If it exhausts retries or sees an error that doesn't match the transient patterns, it throws the error so the next layer can handle it.
 
-Then a normalizer that turns whatever survives retry into something a user can read:
+Let's also add a helper that turns raw errors into user-friendly messages:
 
 ```ts
 function toUserMessage(error: unknown): string {
@@ -604,9 +611,9 @@ function toUserMessage(error: unknown): string {
 }
 ```
 
-The raw error still hits `console.error`, so server logs keep the full detail for debugging. Only the cleaned-up string goes back to the client.
+This function looks for known patterns in the raw error message and returns a clean, user-friendly message. It also logs the full error for debugging. You can customize the patterns and messages based on the kinds of errors you see in practice.
 
-Apply both to `previewPosts`: swap `runner.ask(prompt)` for `askWithRetry(runner, prompt)` and wrap the body in `try/catch`. The shape looks like this:
+Apply both to helpers to  `previewPosts`: swap `runner.ask(prompt)` for `askWithRetry(runner, prompt)` and wrap the body in `try/catch`. The shape looks like this:
 
 ```ts
 export async function previewPosts(params: {
@@ -642,9 +649,7 @@ export async function previewPosts(params: {
 }
 ```
 
-Same treatment for `regenerateDraft` — wrap its body in `try/catch` and swap `runner.ask` for `askWithRetry`. The full version lives in [`_final_code/src/app/actions.ts`](_final_code/src/app/actions.ts) for reference.
-
-With this in place, most 503s retry silently and resolve. The ones that don't are shown to the user as a single clean sentence instead of a stack trace.
+Do the same for `regenerateDraft` — wrap its body in `try/catch` and swap `runner.ask` for `askWithRetry`. You can fine-tune the error handling per action if you want — maybe `regenerateDraft` has a different set of transient patterns, or you want a different user message. The key is that this layer is where you catch anything that falls through the plugins.
 
 > **Key takeaway.** Plugins handle tool-level failures. Model-level failures (overload, rate limits, schema violations) and the user-facing messaging that goes with them belong at the Server Action boundary. Knowing which layer owns which kind of failure saves you from wondering why a retry plugin isn't catching a 503.
 
@@ -666,7 +671,7 @@ The Draft Desk is one example. These same patterns show up almost anywhere:
 
 ## Extending the example
 
-A few directions if you want to keep tinkering with The Draft Desk:
+Here are a few ideas for how to take the Draft Desk further, using the same patterns:
 
 - **Add a platform.** Extend `Platform` in `src/types.ts`, add a `PLATFORM_SPECS` entry, and update the platform rules in the system prompt. The UI adapts automatically.
 - **Change the input.** Swap `WebFetchTool` for `WebSearchTool` and the input becomes a topic instead of a URL — "draft social posts about the latest browser release."
