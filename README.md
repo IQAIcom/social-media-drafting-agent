@@ -88,16 +88,19 @@ The runner is a singleton — the plugin cache survives across Server Action cal
 ## Prerequisites
 
 - Node.js 22+ — [Download Node.js](https://nodejs.org/en/download/)
-- pnpm — [Install pnpm](https://pnpm.io/installation)
-- A [Google AI Studio](https://aistudio.google.com/app/api-keys) API key
+- A package manager of your choice (pnpm, npm, yarn, etc.)
+- An API key for your chosen model provider:
+  - [Google AI Studio](https://aistudio.google.com/app/api-keys) (default — Gemini)
+  - [OpenAI](https://platform.openai.com/api-keys)
+  - [Anthropic](https://console.anthropic.com/)
 
 ## Getting Started
 
 1. Clone the repository and switch to the starter branch:
 
    ```bash
-   git clone https://github.com/IQAIcom/adk-ts-samples.git
-   cd adk-ts-samples/apps/social-media-drafting-agent
+   git clone https://github.com/IQAIcom/social-media-drafting-agent.git
+   cd social-media-drafting-agent
    git checkout starter
    ```
 
@@ -136,11 +139,11 @@ Paste any publicly accessible blog URL into the form, choose a tone and platform
 
 After the first generation, clicking **Rewrite** on any card uses the cached article — no re-download, near-instant response.
 
-For X and Threads you can switch between **Post** (single post) and **Thread** (2–10 chained posts) using the format selector.
+For X and Threads, you can switch between **Post** (single post) and **Thread** (2–10 chained posts) using the format selector.
 
 ## License
 
-MIT — see [LICENSE](../../LICENSE).
+MIT — see [LICENSE](./LICENSE).
 
 ## Additional Resources
 
