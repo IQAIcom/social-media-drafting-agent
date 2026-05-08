@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://files.catbox.moe/vumztw.png" alt="ADK-TS Logo" width="80" />
   <br/>
-  <h1>The Draft Desk</h1>
+  <h1>Social Media Drafting Agent</h1>
   <b>Demo project for the article "How to extend TypeScript AI agents with plugins and callbacks in ADK-TS"</b>
   <br/>
   <i>Next.js · ADK-TS · Plugins · Lifecycle Callbacks · Server Actions</i>
